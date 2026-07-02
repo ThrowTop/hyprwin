@@ -1,0 +1,3 @@
+#pragma once
+
+#define HYPRWIN_VERSION "@PROJECT_VERSION@"

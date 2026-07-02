@@ -1,0 +1,58 @@
+# .clang-format
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: Latest
+
+# Core layout
+ColumnLimit: 180
+IndentWidth: 4
+ContinuationIndentWidth: 2
+UseTab: Never
+TabWidth: 4
+
+# Calls/params
+AlignAfterOpenBracket: DontAlign
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: true
+PenaltyBreakBeforeFirstCallParameter: 1000000
+
+# Lambdas and short forms
+AllowShortLambdasOnASingleLine: All
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Empty
+LambdaBodyIndentation: Signature
+
+# Braces and spacing
+BreakBeforeBraces: Attach
+SpaceBeforeParens: ControlStatements
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Namespaces
+NamespaceIndentation: Inner
+FixNamespaceComments: true
+CompactNamespaces: false
+
+# Includes
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+# Switch/case and operators
+IndentCaseLabels: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+
+AlwaysBreakAfterReturnType: None
+
+# Odds & ends
+AlignOperands: Align
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+ReflowComments: false
+PackConstructorInitializers: CurrentLine
+BreakConstructorInitializers: BeforeComma
+DerivePointerAlignment: false
+
+AlwaysBreakTemplateDeclarations: Yes

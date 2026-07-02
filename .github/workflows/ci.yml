@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      CMAKE_VERSION: 4.3.3
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.txt -Raw).Trim()
+          $expectedTag = "v$version"
+          if ($env:RELEASE_TAG -ne $expectedTag) {
+            throw "Release tag must match version.txt: expected $expectedTag, got $env:RELEASE_TAG"
+          }
+
+      - name: Install CMake
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/cmake.zip"
+          $checksums = "$env:RUNNER_TEMP/cmake-sha256.txt"
+          $root = "$env:RUNNER_TEMP/cmake"
+          $url = "https://github.com/Kitware/CMake/releases/download/v$env:CMAKE_VERSION/cmake-$env:CMAKE_VERSION-windows-x86_64.zip"
+          $checksumUrl = "https://github.com/Kitware/CMake/releases/download/v$env:CMAKE_VERSION/cmake-$env:CMAKE_VERSION-SHA-256.txt"
+          Invoke-WebRequest $url -OutFile $archive
+          Invoke-WebRequest $checksumUrl -OutFile $checksums
+
+          $filename = "cmake-$env:CMAKE_VERSION-windows-x86_64.zip"
+          $line = Get-Content $checksums | Where-Object { $_ -match "\s+$([regex]::Escape($filename))$" }
+          if (!$line) {
+            throw "Checksum was not found for $filename"
+          }
+          $expected = ($line -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "CMake archive checksum mismatch"
+          }
+
+          Expand-Archive $archive -DestinationPath $root
+          "$root/cmake-$env:CMAKE_VERSION-windows-x86_64/bin" | Out-File $env:GITHUB_PATH -Append
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+
+          if (!$vsPath) {
+            throw "Visual Studio with the x64 C++ toolchain was not found"
+          }
+
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
+            -DevCmdArguments "-arch=x64 -host_arch=x64"
+
+          cmake --workflow --preset release
+
+      - name: Package
+        shell: pwsh
+        run: cmake --build --preset release --target hyprwin_package
+
+      - name: Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content version.txt -Raw).Trim()
+          $tag = "v$version"
+          $asset = "build/packages/hyprwin-$version-windows-x64.zip"
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $asset --clobber
+          } else {
+            gh release create $tag $asset --verify-tag --generate-notes --title $tag
+          }

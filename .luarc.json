@@ -1,0 +1,9 @@
+{
+  "runtime": {
+    "version": "LuaJIT"
+  },
+  "workspace": {
+    "library": ["hw_annotations.lua"],
+    "checkThirdParty": false
+  }
+}

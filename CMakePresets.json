@@ -1,0 +1,81 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 3,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "HYPRWIN_ENABLE_PERF": "OFF"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/.work/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "HYPRWIN_LOG_ACTIVE_LEVEL": "0"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/.work/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HYPRWIN_LOG_ACTIVE_LEVEL": "2"
+      }
+    },
+    {
+      "name": "perf",
+      "displayName": "Perf",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/.work/perf",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HYPRWIN_ENABLE_PERF": "ON",
+        "HYPRWIN_LOG_ACTIVE_LEVEL": "2"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",          "configurePreset": "debug" },
+    { "name": "release",        "configurePreset": "release" },
+    { "name": "perf",           "configurePreset": "perf" }
+  ],
+  "workflowPresets": [
+    {
+      "name": "debug",
+      "displayName": "Configure + Build Debug",
+      "steps": [
+        { "type": "configure", "name": "debug" },
+        { "type": "build", "name": "debug" }
+      ]
+    },
+    {
+      "name": "release",
+      "displayName": "Configure + Build Release",
+      "steps": [
+        { "type": "configure", "name": "release" },
+        { "type": "build", "name": "release" }
+      ]
+    },
+    {
+      "name": "perf",
+      "displayName": "Configure + Build Perf",
+      "steps": [
+        { "type": "configure", "name": "perf" },
+        { "type": "build", "name": "perf" }
+      ]
+    }
+  ]
+}
