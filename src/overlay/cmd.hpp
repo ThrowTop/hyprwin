@@ -16,6 +16,7 @@ struct DragSession {
     vec::i2 anchor{};
     vec::i2 windowSize{};
     vec::i4 visualOffset{};
+    float dpiScale = 1.0f;
 };
 
 struct ResizeSession {
@@ -25,6 +26,7 @@ struct ResizeSession {
     vec::i2 minSize{};
     vec::i2 maxSize{};
     vec::i4 visualOffset{};
+    float dpiScale = 1.0f;
 };
 
 struct Hide {};

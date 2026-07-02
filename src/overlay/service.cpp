@@ -45,6 +45,18 @@ namespace {
         return vec::i4{};
     }
 
+    float DpiScale(const OverlayActiveSession& active) noexcept {
+        if (const auto* drag = std::get_if<DragSession>(&active)) {
+            return drag->dpiScale;
+        }
+
+        if (const auto* resize = std::get_if<ResizeSession>(&active)) {
+            return resize->dpiScale;
+        }
+
+        return 1.0f;
+    }
+
     void SetOverlayCursor(const OverlayActiveSession& active) noexcept {
         static HCURSOR move = LoadCursorW(nullptr, IDC_SIZEALL);
         static HCURSOR resizeNwse = LoadCursorW(nullptr, IDC_SIZENWSE);
@@ -167,7 +179,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
 
     SettingsPtr settingsSnapshot = LoadSettingsSnapshot(m_settings, DefaultSettings());
     m_shaderManager.ApplySettings(*settingsSnapshot);
-    if (!RecoverRenderer(renderer, renderer.Render(window.Bounds(), *settingsSnapshot, SessionType::None))) {
+    if (!RecoverRenderer(renderer, renderer.Render(window.Bounds(), *settingsSnapshot, SessionType::None, 1.0f))) {
         LOG_CRITICAL("Failed to prime overlay renderer");
         return;
     }
@@ -254,7 +266,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         const vec::i4 visualBounds = ApplyVisualOffset(logicalBounds, VisualOffset(active));
 
         const SessionType sessionType = GetSessionType(active);
-        const RenderStatus renderStatus = renderer.Render(visualBounds, *settingsSnapshot, sessionType);
+        const RenderStatus renderStatus = renderer.Render(visualBounds, *settingsSnapshot, sessionType, DpiScale(active));
         if (renderStatus != RenderStatus::Ok) {
             LOG_ERROR("overlay_service: Render failed status={}", RenderStatusName(renderStatus));
             if (!RecoverRenderer(renderer, renderStatus)) {

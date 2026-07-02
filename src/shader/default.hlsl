@@ -20,26 +20,25 @@ float4 hyprwin_pixel(HyprWinPixelInput input) {
     float2 p = input.screenPosition - runtime.rectCenter;
     float d = rounded_box_distance(p, runtime.rectHalfSize, settings.cornerRadius);
 
-    float outerThickness = floor(max(settings.borderThickness, 1.0f) * 0.5f);
-    float innerThickness = max(settings.borderThickness, 1.0f) - outerThickness;
-
     float t = saturate(dot(p, settings.gradientDirection) / (runtime.gradientScale * 2.0f) + 0.5f);
-    float4 innerColor = hyprwin_sample_palette(t);
-    float4 outerColor = float4(innerColor.rgb, innerColor.a * settings.outerAlpha);
+    float4 color = hyprwin_sample_palette(t);
 
-    float outerMask = smoothstep(1.0f, -1.0f, d) *
-                      smoothstep(-outerThickness - 1.0f, -outerThickness + 1.0f, d);
+    float borderDistance = d + 1.0f;
+    float thickness = max(settings.borderThickness, 1.0f);
+    float aa = max(fwidth(borderDistance), 0.5f);
+    float borderMask = smoothstep(-aa, 0.0f, borderDistance) *
+                       smoothstep(thickness + aa, thickness - aa, borderDistance);
+    float opaqueWidth = min(thickness, 1.0f);
+    float fadeWidth = max(thickness - opaqueWidth, 1.0f);
+    float borderFade = saturate((borderDistance - opaqueWidth) / fadeWidth);
+    float borderAlpha = lerp(1.0f, settings.outerAlpha, borderFade);
 
-    float innerMask = smoothstep(-outerThickness + 1.0f, -outerThickness - 1.0f, d) *
-                      smoothstep(-outerThickness - innerThickness - 1.0f,
-                                 -outerThickness - innerThickness + 1.0f, d);
+    float glowDistance = max(borderDistance - thickness, 0.0f);
+    float glowMask = smoothstep(thickness - aa, thickness + aa, borderDistance);
+    float glow = exp(-glowDistance * max(settings.glowFalloff, 0.001f)) *
+                 glowMask *
+                 settings.outerAlpha;
 
-    float glowIntensity = exp(-max(d, 0.0f) * settings.glowFalloff) * smoothstep(-1.0f, 1.0f, d);
-
-    float finalAlpha = saturate(
-        outerColor.a * (outerMask + glowIntensity) +
-        innerColor.a * innerMask
-    );
-
-    return float4(innerColor.rgb * finalAlpha, finalAlpha);
+    float alpha = saturate(color.a * (borderMask * borderAlpha + glow));
+    return float4(color.rgb * alpha, alpha);
 }

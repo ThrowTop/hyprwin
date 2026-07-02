@@ -444,6 +444,8 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
     RECT visualOffsetWin{};
     win::GetDwmVisualOffsets(candidate, visualOffsetWin);
     const vec::i4 visualOffset = vec::i4::FromWin32(visualOffsetWin);
+    const UINT windowDpi = GetDpiForWindow(candidate);
+    const float dpiScale = windowDpi != 0 ? static_cast<float>(windowDpi) / 96.0f : 1.0f;
 
     if (isLeft) {
         const vec::i2 anchor{pt.x - rawRect.x, pt.y - rawRect.y};
@@ -451,6 +453,7 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
           .anchor = anchor,
           .windowSize = rawRect.Size(),
           .visualOffset = visualOffset,
+          .dpiScale = dpiScale,
         };
         if (!m_overlay->Send(BeginDrag{.session = session, .initialBounds = rawRect})) {
             TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "failed:overlay-queue");
@@ -476,6 +479,7 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
       .minSize = vec::i2{static_cast<int>(minSizeWin.cx), static_cast<int>(minSizeWin.cy)},
       .maxSize = vec::i2{static_cast<int>(maxSizeWin.cx), static_cast<int>(maxSizeWin.cy)},
       .visualOffset = visualOffset,
+      .dpiScale = dpiScale,
     };
     if (!m_overlay->Send(BeginResize{.session = session})) {
         TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "failed:overlay-queue");

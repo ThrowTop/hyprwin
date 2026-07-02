@@ -149,7 +149,7 @@ void OverlayRenderer::ResetSessionAnimation() noexcept {
     m_shaderSessionSeconds = 0.0f;
 }
 
-RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType) noexcept {
+RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept {
     const RenderStatus ready = EnsureReady();
     if (ready != RenderStatus::Ok) {
         return ready;
@@ -208,7 +208,7 @@ RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings
         m_lastRenderTicks = now.QuadPart;
     }
 
-    if (!m_shader.UpdateConstants(m_dx, BuildShaderParams(sessionType))) {
+    if (!m_shader.UpdateConstants(m_dx, BuildShaderParams(sessionType, dpiScale))) {
         return m_dx.ValidateDevice() == DxDeviceStatus::Ok ? RenderStatus::SwapchainInvalid : RenderStatus::DeviceLost;
     }
 
@@ -338,7 +338,7 @@ RenderStatus OverlayRenderer::PresentDraw(bool flushDwm, bool resourcesReady) no
     return RenderStatus::SwapchainInvalid;
 }
 
-ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType) const noexcept {
+ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept {
     ShaderParams params{};
     params.runtime.canvasSize[0] = static_cast<float>(m_canvasW);
     params.runtime.canvasSize[1] = static_cast<float>(m_canvasH);
@@ -357,7 +357,7 @@ ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType) const n
     params.settings.gradientDirection[0] = m_gradientDirX;
     params.settings.gradientDirection[1] = m_gradientDirY;
     params.settings.borderThickness = m_settings.border;
-    params.settings.cornerRadius = m_settings.corner_radius;
+    params.settings.cornerRadius = m_settings.corner_radius * dpiScale;
     params.settings.outerAlpha = m_settings.outer_alpha;
     params.settings.glowFalloff = m_settings.glow_falloff;
     params.settings.colorCount = m_settings.shader_palette.count;

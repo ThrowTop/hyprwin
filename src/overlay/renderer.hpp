@@ -48,7 +48,7 @@ class OverlayRenderer {
     void InstallPixelShader(std::shared_ptr<const shader::Bytecode> bytecode, std::uint64_t generation) noexcept;
     void ResetSessionAnimation() noexcept;
 
-    [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType) noexcept;
+    [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept;
 
   private:
     [[nodiscard]] RenderStatus EnsureReady() noexcept;
@@ -57,7 +57,7 @@ class OverlayRenderer {
     void ApplySettings(const Settings& settings) noexcept;
     void UpdateGeometry() noexcept;
     void UpdateGradientDirection() noexcept;
-    [[nodiscard]] ShaderParams BuildShaderParams(SessionType sessionType) const noexcept;
+    [[nodiscard]] ShaderParams BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept;
 
     DxContext m_dx;
     BorderShader m_shader;
