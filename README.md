@@ -87,6 +87,11 @@ end)
 The full Lua API, shader API, examples, and troubleshooting guides live in the
 HyprWin documentation project.
 
+## Previous version
+
+The [original HyprWin implementation](https://github.com/ThrowTop/hyprwin-v1)
+is preserved separately.
+
 ## License
 
 HyprWin is available under the [MIT License](LICENSE).
