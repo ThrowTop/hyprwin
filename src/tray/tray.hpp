@@ -148,8 +148,7 @@ class Tray : public BaseTray {
             throw std::runtime_error("Failed to register tray icon");
 
         notifyData.uVersion = NOTIFYICON_VERSION_4;
-        Shell_NotifyIconA(NIM_SETVERSION, reinterpret_cast<PNOTIFYICONDATAA>(&notifyData));
-        // Shell_NotifyIconW(NIM_SETVERSION, &notifyData); // Completly breaks system tray, nothing works i have no clue why.
+        Shell_NotifyIconW(NIM_SETVERSION, &notifyData);
 
         trayList.insert({hwnd, *this});
     }
@@ -307,7 +306,7 @@ class Tray : public BaseTray {
             case WM_TRAY: {
                 auto& tray = it->second.get();
 
-                switch (lParam) {
+                switch (LOWORD(lParam)) {
                     case WM_LBUTTONUP: {
                         if (tray.leftClickCb && tray.leftClickCb()) {
                             return 0;

@@ -251,9 +251,11 @@ namespace {
         return 1;
     }
 
-    int hwDebugJitOff(lua_State* state) {
-        luaJIT_setmode(state, 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF);
-        LOG_DEBUG("lua JIT disabled");
+    int hwDebugJit(lua_State* state) {
+        luaL_checktype(state, 1, LUA_TBOOLEAN);
+        const bool enabled = lua_toboolean(state, 1) != 0;
+        luaJIT_setmode(state, 0, LUAJIT_MODE_ENGINE | (enabled ? LUAJIT_MODE_ON : LUAJIT_MODE_OFF));
+        LOG_DEBUG("lua JIT {}", enabled ? "enabled" : "disabled");
         return 0;
     }
 
@@ -269,8 +271,8 @@ namespace {
 
     int hwDebugIndex(lua_State* state) {
         const std::string key = util::toString(state, 2);
-        if (key == "jit_off") {
-            lua_pushcfunction(state, hwDebugJitOff);
+        if (key == "jit") {
+            lua_pushcfunction(state, hwDebugJit);
             return 1;
         }
         if (key == "shader_compiler_status") {

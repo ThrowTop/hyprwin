@@ -675,7 +675,8 @@ function hw.fs.mkdir(path) end
 
 hw.debug = {}
 
-function hw.debug.jit_off() end
+---@param enabled boolean
+function hw.debug.jit(enabled) end
 
 ---@return hw_debug_shader_compiler_status
 function hw.debug.shader_compiler_status() end
