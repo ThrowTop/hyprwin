@@ -374,6 +374,7 @@ namespace detail {
         if (!set_thread_description) {
             return;
         }
+        
 
         std::wstring wide_name;
         wide_name.reserve(name.size());

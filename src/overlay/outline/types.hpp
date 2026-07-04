@@ -3,11 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <system_error>
+#include <variant>
 #include <vector>
 
-namespace hw::shader {
+namespace hw::outline {
 
 inline std::filesystem::path NormalizePath(const std::filesystem::path& path) {
     std::error_code ec;
@@ -39,4 +41,15 @@ struct CompileResult {
     std::uint64_t generation = 0;
 };
 
-} // namespace hw::shader
+struct UseBuiltInShader {
+    std::uint64_t generation = 0;
+};
+
+struct InstallPixelShader {
+    std::shared_ptr<const Bytecode> bytecode;
+    std::uint64_t generation = 0;
+};
+
+using Update = std::variant<UseBuiltInShader, InstallPixelShader>;
+
+} // namespace hw::outline

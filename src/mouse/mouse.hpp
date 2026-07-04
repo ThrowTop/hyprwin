@@ -65,6 +65,8 @@ class Mouse {
 
     HWND m_target = nullptr;
     SessionType m_sessionType = SessionType::None;
+    InteractionId m_interactionId = 0;
+    InteractionId m_nextInteractionId = 1;
 };
 
 } // namespace hw

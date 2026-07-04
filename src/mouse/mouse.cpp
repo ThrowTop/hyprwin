@@ -428,6 +428,7 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
     win::FocusWindow(candidate);
     m_target = candidate;
     m_sessionType = isLeft ? SessionType::Drag : SessionType::Resize;
+    m_interactionId = m_nextInteractionId++;
 
     const vec::i2 pt = vec::i2::FromWin32(ptWin);
     vec::i4 rawRect = vec::i4::FromWin32(rawRectWin);
@@ -438,6 +439,7 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
         LOG_WARN("mouse: hw::RestoreMaximizedForOperation failed for {} ({})", reinterpret_cast<void*>(candidate), pname);
         m_target = nullptr;
         m_sessionType = SessionType::None;
+        m_interactionId = 0;
         return;
     }
 
@@ -450,6 +452,9 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
     if (isLeft) {
         const vec::i2 anchor{pt.x - rawRect.x, pt.y - rawRect.y};
         DragSession session{
+          .interactionId = m_interactionId,
+          .target = candidate,
+          .originalRawRect = rawRect,
           .anchor = anchor,
           .windowSize = rawRect.Size(),
           .visualOffset = visualOffset,
@@ -461,8 +466,14 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
             LOG_WARN("mouse: failed to start drag for {} ({}) raw_rect={}", reinterpret_cast<void*>(candidate), pname, rawRect);
             m_target = nullptr;
             m_sessionType = SessionType::None;
+            m_interactionId = 0;
             return;
         }
+        LOG_DEBUG("interaction: id={} begin queued type=drag target={:p} cursor={} raw_rect={}",
+          m_interactionId,
+          reinterpret_cast<void*>(candidate),
+          pt,
+          rawRect);
         TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "accepted:drag");
         return;
     }
@@ -473,6 +484,9 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
     const ResizeCorner corner = ResolveResizeCorner(*settings, pt, rawRect);
 
     ResizeSession session{
+      .interactionId = m_interactionId,
+      .target = candidate,
+      .originalRawRect = rawRect,
       .startCursor = pt,
       .startRect = rawRect,
       .corner = corner,
@@ -487,8 +501,14 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
         LOG_WARN("mouse: failed to start resize for {} ({}) raw_rect={}", reinterpret_cast<void*>(candidate), pname, rawRect);
         m_target = nullptr;
         m_sessionType = SessionType::None;
+        m_interactionId = 0;
         return;
     }
+    LOG_DEBUG("interaction: id={} begin queued type=resize target={:p} cursor={} raw_rect={}",
+      m_interactionId,
+      reinterpret_cast<void*>(candidate),
+      pt,
+      rawRect);
     TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "accepted:resize");
 }
 
@@ -496,33 +516,31 @@ void Mouse::FinishOperation() noexcept {
     if (!m_target || !m_overlay) {
         m_target = nullptr;
         m_sessionType = SessionType::None;
+        m_interactionId = 0;
         return;
     }
 
-    const vec::i4 bounds = m_overlay->GetLatestBounds();
-    m_overlay->Send(Hide{});
-
-    if (bounds.Width() > 0 && bounds.Height() > 0) {
-        if (win::GetMaximized(m_target)) {
-            ShowWindow(m_target, SW_RESTORE);
-        }
-        if (!win::PostMoveWindowToRawRect(m_target, bounds.ToWin32())) {
-            const std::string pname = ::util::WideToUtf8(win::GetProcessName(m_target));
-            LOG_WARN(
-              "mouse: failed to commit {} for {} ({}) raw_rect={}", m_sessionType == SessionType::Drag ? "drag" : "resize", reinterpret_cast<void*>(m_target), pname, bounds);
-        }
+    const POINT cursorWin = m_latestMousePos ? m_latestMousePos->load(std::memory_order_relaxed) : POINT{};
+    LOG_DEBUG("interaction: id={} commit queued cursor={}", m_interactionId, vec::i2::FromWin32(cursorWin));
+    if (!m_overlay->Send(CommitInteraction{.interactionId = m_interactionId})) {
+        LOG_WARN("interaction: id={} commit queue failed", m_interactionId);
     }
 
     m_target = nullptr;
     m_sessionType = SessionType::None;
+    m_interactionId = 0;
 }
 
 void Mouse::CancelOperation() noexcept {
-    if (m_overlay) {
-        m_overlay->Send(Hide{});
+    if (m_overlay && m_interactionId != 0) {
+        LOG_DEBUG("interaction: id={} cancel queued", m_interactionId);
+        if (!m_overlay->Send(CancelInteraction{.interactionId = m_interactionId})) {
+            LOG_WARN("interaction: id={} cancel queue failed", m_interactionId);
+        }
     }
     m_target = nullptr;
     m_sessionType = SessionType::None;
+    m_interactionId = 0;
 }
 
 ResizeCorner Mouse::ResolveResizeCorner(const Settings& settings, vec::i2 pt, const vec::i4& rawRect) const noexcept {

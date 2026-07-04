@@ -1,23 +1,23 @@
-#include "overlay/border_shader.hpp"
+#include "overlay/outline/outline_shader.hpp"
 
-#include "border_ps.h"
-#include "border_vs.h"
+#include "outline_ps.h"
+#include "outline_vs.h"
 #include "log/log.hpp"
 
-namespace hw {
+namespace hw::outline {
 namespace {
     unsigned HrCode(HRESULT hr) noexcept {
         return static_cast<unsigned>(hr);
     }
 } // namespace
 
-bool BorderShader::Create(DxContext& dx) noexcept {
+bool Shader::Create(DxContext& dx) noexcept {
     if (!dx.device) {
         LOG_ERROR("border_shader: Create called without D3D device");
         return false;
     }
 
-    HRESULT hr = dx.device->CreateVertexShader(kBorderVS, sizeof(kBorderVS), nullptr, &vertexShader);
+    HRESULT hr = dx.device->CreateVertexShader(kOutlineVS, sizeof(kOutlineVS), nullptr, &vertexShader);
     if (FAILED(hr)) {
         LOG_ERROR("border_shader: CreateVertexShader failed hr=0x{:08X}", HrCode(hr));
         return false;
@@ -70,13 +70,13 @@ bool BorderShader::Create(DxContext& dx) noexcept {
     return true;
 }
 
-bool BorderShader::UseBuiltInPixelShader(DxContext& dx) noexcept {
+bool Shader::UseBuiltInPixelShader(DxContext& dx) noexcept {
     if (!dx.device) {
         return false;
     }
 
     Microsoft::WRL::ComPtr<ID3D11PixelShader> next;
-    const HRESULT hr = dx.device->CreatePixelShader(kBorderPS, sizeof(kBorderPS), nullptr, &next);
+    const HRESULT hr = dx.device->CreatePixelShader(kOutlinePS, sizeof(kOutlinePS), nullptr, &next);
     if (FAILED(hr)) {
         return false;
     }
@@ -84,7 +84,7 @@ bool BorderShader::UseBuiltInPixelShader(DxContext& dx) noexcept {
     return true;
 }
 
-bool BorderShader::InstallPixelShader(DxContext& dx, const shader::Bytecode& bytecode) noexcept {
+bool Shader::InstallPixelShader(DxContext& dx, const Bytecode& bytecode) noexcept {
     if (!dx.device || bytecode.bytes.empty()) {
         return false;
     }
@@ -98,7 +98,7 @@ bool BorderShader::InstallPixelShader(DxContext& dx, const shader::Bytecode& byt
     return true;
 }
 
-bool BorderShader::UpdateConstants(DxContext& dx, const ShaderParams& params) noexcept {
+bool Shader::UpdateConstants(DxContext& dx, const ShaderParams& params) noexcept {
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(dx.context->Map(constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
         return false;
@@ -109,7 +109,7 @@ bool BorderShader::UpdateConstants(DxContext& dx, const ShaderParams& params) no
     return true;
 }
 
-void BorderShader::Bind(DxContext& dx) noexcept {
+void Shader::Bind(DxContext& dx) noexcept {
     dx.context->OMSetBlendState(blendState.Get(), nullptr, 0xffffffff);
     dx.context->RSSetState(rasterizerState.Get());
     dx.context->VSSetShader(vertexShader.Get(), nullptr, 0);
@@ -119,7 +119,7 @@ void BorderShader::Bind(DxContext& dx) noexcept {
     dx.context->IASetInputLayout(nullptr);
 }
 
-void BorderShader::Release() noexcept {
+void Shader::Release() noexcept {
     rasterizerState.Reset();
     blendState.Reset();
     constantBuffer.Reset();
@@ -127,4 +127,4 @@ void BorderShader::Release() noexcept {
     vertexShader.Reset();
 }
 
-} // namespace hw
+} // namespace hw::outline

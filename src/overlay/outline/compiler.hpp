@@ -2,9 +2,9 @@
 
 #include <string>
 
-#include "shader/types.hpp"
+#include "overlay/outline/types.hpp"
 
-namespace hw::shader {
+namespace hw::outline {
 
 struct CompilerAvailability {
     bool available = false;
@@ -18,4 +18,4 @@ class Compiler {
     CompileResult Compile(const CompileRequest& request);
 };
 
-} // namespace hw::shader
+} // namespace hw::outline

@@ -15,6 +15,9 @@ hw.settings = {
     gradient_angle = 45,
     rotating       = true,
     rotation_speed = 120,
+    move_preview      = "overlay",
+    resize_preview    = "overlay",
+    live_preview_rate = 60,
     resize_corner  = "closest",
 }
 

@@ -46,6 +46,7 @@ inline void ReportDxLiveObjects() noexcept {
     }
     dbg->ReportLiveObjects(kDxgiDebugAll, DXGI_DEBUG_RLO_DETAIL);
     LOG_DEBUG("dxdebug: live-object report emitted to debugger output");
+    dbg.Reset();
     FreeLibrary(mod);
 }
 } // namespace hw::debug

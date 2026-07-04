@@ -6,7 +6,9 @@
 #include "lua/util/stack.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -31,6 +33,18 @@ namespace {
                 return "bottomright";
         }
         return "closest";
+    }
+
+    const char* OverlayPreviewName(hw::OverlayPreview preview) noexcept {
+        switch (preview) {
+            case hw::OverlayPreview::Overlay:
+                return "overlay";
+            case hw::OverlayPreview::Live:
+                return "live";
+            case hw::OverlayPreview::Thumbnail:
+                return "thumbnail";
+        }
+        return "overlay";
     }
 
     const auto kDebugFields = std::make_tuple(fields::auto_field("trace_binds", &hw::DebugSettings::trace_binds),
@@ -255,6 +269,54 @@ namespace {
       fields::auto_field("outer_alpha", &hw::Settings::outer_alpha),
       fields::auto_field("glow_falloff", &hw::Settings::glow_falloff),
       fields::custom_field("colors", &hw::Settings::shader_palette, PushPalette, ReadPalette),
+      fields::custom_field(
+        "move_preview",
+        &hw::Settings::move_preview,
+        [](lua_State* s, hw::OverlayPreview v) { lua_pushstring(s, OverlayPreviewName(v)); },
+        [](lua_State* s, int idx) -> std::optional<hw::OverlayPreview> {
+            if (!lua_isstring(s, idx))
+                return std::nullopt;
+            const std::string str = util::toString(s, idx);
+            if (str == "overlay")
+                return hw::OverlayPreview::Overlay;
+            if (str == "live")
+                return hw::OverlayPreview::Live;
+            if (str == "thumbnail")
+                return hw::OverlayPreview::Thumbnail;
+            return std::nullopt;
+        }),
+      fields::custom_field(
+        "resize_preview",
+        &hw::Settings::resize_preview,
+        [](lua_State* s, hw::OverlayPreview v) { lua_pushstring(s, OverlayPreviewName(v)); },
+        [](lua_State* s, int idx) -> std::optional<hw::OverlayPreview> {
+            if (!lua_isstring(s, idx))
+                return std::nullopt;
+            const std::string str = util::toString(s, idx);
+            if (str == "overlay")
+                return hw::OverlayPreview::Overlay;
+            if (str == "live")
+                return hw::OverlayPreview::Live;
+            if (str == "thumbnail")
+                return hw::OverlayPreview::Thumbnail;
+            return std::nullopt;
+        }),
+      fields::custom_field(
+        "live_preview_rate",
+        &hw::Settings::live_preview_rate,
+        [](lua_State* s, std::uint32_t v) { lua_pushinteger(s, static_cast<lua_Integer>(v)); },
+        [](lua_State* s, int idx) -> std::optional<std::uint32_t> {
+            if (!lua_isnumber(s, idx))
+                return std::nullopt;
+            const lua_Number number = lua_tonumber(s, idx);
+            if (!std::isfinite(number))
+                return std::nullopt;
+            if (number <= 0)
+                return 0;
+            if (number >= static_cast<lua_Number>(std::numeric_limits<std::uint32_t>::max()))
+                return std::numeric_limits<std::uint32_t>::max();
+            return static_cast<std::uint32_t>(number);
+        }),
       fields::custom_field(
         "resize_corner",
         &hw::Settings::resize_corner,

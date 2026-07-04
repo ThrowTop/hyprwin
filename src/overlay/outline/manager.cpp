@@ -1,12 +1,12 @@
-#include "shader/manager.hpp"
+#include "overlay/outline/manager.hpp"
 
 #include <memory>
 #include <utility>
 
 #include "log/log.hpp"
-#include "shader/cache.hpp"
+#include "overlay/outline/cache.hpp"
 
-namespace hw::shader {
+namespace hw::outline {
 
 Manager::Manager(PublishFn publish) : m_publish(std::move(publish)) {
     m_worker = std::jthread([this](std::stop_token token) {
@@ -25,7 +25,7 @@ Manager::~Manager() {
 void Manager::ApplySettings(const Settings& settings) {
     std::filesystem::path next = settings.shader_path;
 
-    OverlayCmd publishCommand = UseBuiltInShader{};
+    Update update = UseBuiltInShader{};
     bool publishBuiltIn = false;
 
     {
@@ -39,7 +39,7 @@ void Manager::ApplySettings(const Settings& settings) {
 
         if (next.empty()) {
             m_pending.reset();
-            publishCommand = UseBuiltInShader{.generation = m_generation};
+            update = UseBuiltInShader{.generation = m_generation};
             publishBuiltIn = true;
         } else {
             m_pending = Request{.source_path = next, .generation = m_generation};
@@ -48,7 +48,7 @@ void Manager::ApplySettings(const Settings& settings) {
     }
 
     if (publishBuiltIn && m_publish) {
-        m_publish(std::move(publishCommand));
+        m_publish(std::move(update));
     }
 }
 
@@ -124,4 +124,4 @@ void Manager::WorkerLoop(std::stop_token token) {
     }
 }
 
-} // namespace hw::shader
+} // namespace hw::outline

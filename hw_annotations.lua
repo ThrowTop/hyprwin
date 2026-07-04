@@ -421,6 +421,9 @@ function HW.Timer:call() end
 ---@field corner_radius? number
 ---@field outer_alpha? number
 ---@field glow_falloff? number
+---@field move_preview? "overlay"|"live"|"thumbnail"
+---@field resize_preview? "overlay"|"live"|"thumbnail"
+---@field live_preview_rate? integer
 ---@field resize_corner? "closest"|"topleft"|"topright"|"bottomleft"|"bottomright"
 ---@field grab_filters? hw_grab_filter[]
 ---@field debug? hw_settings_debug

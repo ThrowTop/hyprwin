@@ -1,4 +1,4 @@
-#include "overlay/renderer.hpp"
+#include "overlay/render/renderer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -45,7 +45,7 @@ bool OverlayRenderer::Init(HWND hwnd, const vec::i4& canvasBounds) noexcept {
     m_canvasW = static_cast<UINT>(canvasBounds.Width());
     m_canvasH = static_cast<UINT>(canvasBounds.Height());
 
-    if (!m_dx.Create(m_hwnd) || !m_shader.Create(m_dx)) {
+    if (!m_dx.Create(m_hwnd) || !m_outlineShader.Create(m_dx) || !m_thumbnailShader.Create(m_dx)) {
         Destroy();
         return false;
     }
@@ -59,7 +59,8 @@ bool OverlayRenderer::Init(HWND hwnd, const vec::i4& canvasBounds) noexcept {
 }
 
 void OverlayRenderer::Destroy() noexcept {
-    m_shader.Release();
+    m_thumbnailShader.Release();
+    m_outlineShader.Release();
     m_dx.ReleaseDeviceResources();
 
     m_borderX = 0.0f;
@@ -77,6 +78,7 @@ void OverlayRenderer::Destroy() noexcept {
     m_gradientRuntimeAngle = 0.0f;
     m_gradientDirX = 1.0f;
     m_gradientDirY = 0.0f;
+    m_thumbnailCornerRadius = 0.0f;
     m_shaderSessionSeconds = 0.0f;
     m_activeSessionType = SessionType::None;
     m_customPixelShaderBytecode.reset();
@@ -88,56 +90,57 @@ RenderStatus OverlayRenderer::ClearForShow() noexcept {
 }
 
 bool OverlayRenderer::ResetDevice() noexcept {
-    m_shader.Release();
+    m_thumbnailShader.Release();
+    m_outlineShader.Release();
     m_dx.ReleaseDeviceResources();
 
-    if (!m_dx.Create(m_hwnd) || !m_shader.Create(m_dx)) {
+    if (!m_dx.Create(m_hwnd) || !m_outlineShader.Create(m_dx) || !m_thumbnailShader.Create(m_dx)) {
         LOG_ERROR("renderer: ResetDevice failed during device/shader create");
         Destroy();
         return false;
     }
     m_pipelineDirty = true;
 
-    if (m_customPixelShaderBytecode && !m_shader.InstallPixelShader(m_dx, *m_customPixelShaderBytecode)) {
+    if (m_customPixelShaderBytecode && !m_outlineShader.InstallPixelShader(m_dx, *m_customPixelShaderBytecode)) {
         LOG_ERROR("renderer: ResetDevice failed to restore custom pixel shader; falling back to built-in");
         m_customPixelShaderBytecode.reset();
-        m_shader.UseBuiltInPixelShader(m_dx);
+        m_outlineShader.UseBuiltInPixelShader(m_dx);
     }
 
     return m_dx.EnsureSwapResources(m_canvasW, m_canvasH);
 }
 
 void OverlayRenderer::UseBuiltInShader(std::uint64_t generation) noexcept {
-    if (generation < m_shaderGeneration) {
+    if (generation < m_outlineGeneration) {
         return;
     }
     if (!m_dx.device) {
         LOG_WARN("renderer: ignored built-in pixel shader generation={} because device is unavailable", generation);
         return;
     }
-    if (!m_shader.UseBuiltInPixelShader(m_dx)) {
+    if (!m_outlineShader.UseBuiltInPixelShader(m_dx)) {
         LOG_ERROR("renderer: failed to restore built-in pixel shader");
         return;
     }
-    m_shaderGeneration = generation;
+    m_outlineGeneration = generation;
     m_customPixelShaderBytecode.reset();
     m_pipelineDirty = true;
     LOG_DEBUG("renderer: using built-in pixel shader generation={}", generation);
 }
 
-void OverlayRenderer::InstallPixelShader(std::shared_ptr<const shader::Bytecode> bytecode, std::uint64_t generation) noexcept {
-    if (generation < m_shaderGeneration) {
+void OverlayRenderer::InstallPixelShader(std::shared_ptr<const outline::Bytecode> bytecode, std::uint64_t generation) noexcept {
+    if (generation < m_outlineGeneration) {
         return;
     }
     if (!m_dx.device) {
         LOG_WARN("renderer: ignored custom pixel shader generation={} because device is unavailable", generation);
         return;
     }
-    if (!bytecode || !m_shader.InstallPixelShader(m_dx, *bytecode)) {
+    if (!bytecode || !m_outlineShader.InstallPixelShader(m_dx, *bytecode)) {
         LOG_ERROR("renderer: failed to install custom pixel shader generation={}", generation);
         return;
     }
-    m_shaderGeneration = generation;
+    m_outlineGeneration = generation;
     m_customPixelShaderBytecode = std::move(bytecode);
     m_pipelineDirty = true;
     LOG_INFO("renderer: installed custom pixel shader generation={}", generation);
@@ -147,6 +150,14 @@ void OverlayRenderer::ResetSessionAnimation() noexcept {
     m_activeSessionType = SessionType::None;
     m_sessionStartTicks = 0;
     m_shaderSessionSeconds = 0.0f;
+}
+
+bool OverlayRenderer::CaptureSnapshot(HWND target, const vec::i4& visualBounds) noexcept {
+    return m_thumbnailShader.Capture(m_dx, target, visualBounds);
+}
+
+void OverlayRenderer::ClearSnapshot() noexcept {
+    m_thumbnailShader.Clear();
 }
 
 RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept {
@@ -170,6 +181,7 @@ RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings
     }
 
     ApplySettings(settings);
+    m_thumbnailCornerRadius = settings.corner_radius * dpiScale;
 
     LARGE_INTEGER now{};
     const bool haveNow = QueryPerformanceCounter(&now);
@@ -208,7 +220,7 @@ RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings
         m_lastRenderTicks = now.QuadPart;
     }
 
-    if (!m_shader.UpdateConstants(m_dx, BuildShaderParams(sessionType, dpiScale))) {
+    if (!m_outlineShader.UpdateConstants(m_dx, BuildShaderParams(sessionType, dpiScale))) {
         return m_dx.ValidateDevice() == DxDeviceStatus::Ok ? RenderStatus::SwapchainInvalid : RenderStatus::DeviceLost;
     }
 
@@ -317,8 +329,19 @@ RenderStatus OverlayRenderer::PresentDraw(bool flushDwm, bool resourcesReady) no
 
         m_dx.ClearRenderTarget();
         m_dx.SetViewport(m_canvasW, m_canvasH);
-        if (m_pipelineDirty) {
-            m_shader.Bind(m_dx);
+        if (m_thumbnailShader.HasSnapshot()) {
+            const vec::i4 canvasBounds{m_canvasOriginX, m_canvasOriginY, m_canvasOriginX + static_cast<int>(m_canvasW), m_canvasOriginY + static_cast<int>(m_canvasH)};
+            const vec::i4 thumbnailBounds{
+              static_cast<int>(m_borderX) + m_canvasOriginX,
+              static_cast<int>(m_borderY) + m_canvasOriginY,
+              static_cast<int>(m_borderX + m_borderW) + m_canvasOriginX,
+              static_cast<int>(m_borderY + m_borderH) + m_canvasOriginY,
+            };
+            m_thumbnailShader.Draw(m_dx, canvasBounds, thumbnailBounds, m_thumbnailCornerRadius);
+            m_outlineShader.Bind(m_dx);
+            m_pipelineDirty = false;
+        } else if (m_pipelineDirty) {
+            m_outlineShader.Bind(m_dx);
             m_pipelineDirty = false;
         }
         m_dx.context->Draw(3, 0);
@@ -338,8 +361,8 @@ RenderStatus OverlayRenderer::PresentDraw(bool flushDwm, bool resourcesReady) no
     return RenderStatus::SwapchainInvalid;
 }
 
-ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept {
-    ShaderParams params{};
+outline::ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept {
+    outline::ShaderParams params{};
     params.runtime.canvasSize[0] = static_cast<float>(m_canvasW);
     params.runtime.canvasSize[1] = static_cast<float>(m_canvasH);
     params.runtime.rectCenter[0] = m_rectCenterX;
@@ -347,9 +370,9 @@ ShaderParams OverlayRenderer::BuildShaderParams(SessionType sessionType, float d
     params.runtime.rectHalfSize[0] = m_rectHalfW;
     params.runtime.rectHalfSize[1] = m_rectHalfH;
     params.runtime.gradientScale = m_gradientScale;
-    params.runtime.sessionType = static_cast<std::uint32_t>(sessionType == SessionType::Drag     ? ShaderSession::Drag
-                                                            : sessionType == SessionType::Resize ? ShaderSession::Resize
-                                                                                                 : ShaderSession::None);
+    params.runtime.sessionType = static_cast<std::uint32_t>(sessionType == SessionType::Drag     ? outline::ShaderSession::Drag
+                                                            : sessionType == SessionType::Resize ? outline::ShaderSession::Resize
+                                                                                                 : outline::ShaderSession::None);
     params.runtime.timeSeconds = m_shaderTimeSeconds;
     params.runtime.deltaSeconds = m_shaderDeltaSeconds;
     params.runtime.sessionSeconds = m_shaderSessionSeconds;
