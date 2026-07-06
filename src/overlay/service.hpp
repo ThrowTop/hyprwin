@@ -11,7 +11,6 @@
 #include <windows.h>
 
 #include "config/settings.hpp"
-#include "overlay/atomic_rect.hpp"
 #include "overlay/cmd.hpp"
 #include "overlay/outline/manager.hpp"
 #include "overlay/placement/worker.hpp"
@@ -32,18 +31,17 @@ class OverlayService {
     void Start();
     bool Send(const OverlayCmd& cmd) noexcept;
     void MarkSettingsDirty() noexcept;
-    [[nodiscard]] vec::i4 GetLatestBounds() const noexcept;
 
   private:
     struct PreviewState {
         OverlayPreview mode = OverlayPreview::Overlay;
         std::uint32_t liveRate = 60;
         bool capturePending = false;
+        bool captureInProgress = false;
         bool parkPending = false;
         bool parkSubmitted = false;
         bool finishing = false;
         bool livePlacementSubmitted = false;
-        vec::i4 captureVisualBounds{};
         vec::i4 lastLiveRawRect{};
         std::chrono::steady_clock::time_point nextLivePlacement{};
 
@@ -51,11 +49,11 @@ class OverlayService {
             mode = OverlayPreview::Overlay;
             liveRate = 60;
             capturePending = false;
+            captureInProgress = false;
             parkPending = false;
             parkSubmitted = false;
             finishing = false;
             livePlacementSubmitted = false;
-            captureVisualBounds = {};
             lastLiveRawRect = {};
             nextLivePlacement = {};
         }
@@ -66,18 +64,15 @@ class OverlayService {
       OverlayRenderer& renderer,
       OverlayActiveSession& active,
       SettingsPtr& settingsSnapshot,
-      PreviewState& preview,
-      bool& shutdown,
-      bool& resetDevice) noexcept;
+      PreviewState& preview) noexcept;
     void ApplyCommand(OverlayRenderer& renderer,
       const OverlayCmd& cmd,
       OverlayActiveSession& active,
       SettingsPtr& settingsSnapshot,
-      PreviewState& preview,
-      bool& shutdown,
-      bool& resetDevice) noexcept;
+      PreviewState& preview) noexcept;
     void DrainPlacementResults(OverlayRenderer& renderer, OverlayActiveSession& active, PreviewState& preview) noexcept;
     void RestoreBeforeTeardown(const OverlayActiveSession& active, PreviewState& preview) noexcept;
+    void CompleteInteraction(OverlayRenderer& renderer, OverlayActiveSession& active, PreviewState& preview) noexcept;
     PlacementWorker& EnsurePlacementWorker();
     void RetirePlacementWorkerIfUnused(const OverlayActiveSession& active, const Settings& settings) noexcept;
     void PublishOutlineUpdate(outline::Update update) noexcept;
@@ -94,7 +89,8 @@ class OverlayService {
     std::condition_variable m_cv;
     std::optional<OverlayCmd> m_pendingOutlineCommand;
     std::jthread m_thread;
-    AtomicRect m_latestBounds{};
+    std::atomic_bool m_interactionReserved{false};
+    vec::i4 m_latestBounds{};
     outline::Manager m_outlineManager;
     std::unique_ptr<PlacementWorker> m_placementWorker;
     bool m_started = false;

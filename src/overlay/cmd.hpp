@@ -43,8 +43,6 @@ struct CommitInteraction {
 struct CancelInteraction {
     InteractionId interactionId = 0;
 };
-struct ResetDevice {};
-struct Shutdown {};
 using UseBuiltInShader = outline::UseBuiltInShader;
 using InstallPixelShader = outline::InstallPixelShader;
 
@@ -57,7 +55,7 @@ struct BeginResize {
     ResizeSession session{};
 };
 
-using OverlayCmd = std::variant<CommitInteraction, CancelInteraction, ResetDevice, Shutdown, UseBuiltInShader, InstallPixelShader, BeginDrag, BeginResize>;
+using OverlayCmd = std::variant<CommitInteraction, CancelInteraction, UseBuiltInShader, InstallPixelShader, BeginDrag, BeginResize>;
 
 using OverlayActiveSession = std::variant<std::monostate, DragSession, ResizeSession>;
 

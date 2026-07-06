@@ -9,17 +9,17 @@
 namespace hw {
 namespace {
 
-const char* OverlayPreviewName(OverlayPreview preview) noexcept {
-    switch (preview) {
-        case OverlayPreview::Overlay:
-            return "overlay";
-        case OverlayPreview::Live:
-            return "live";
-        case OverlayPreview::Thumbnail:
-            return "thumbnail";
+    const char* OverlayPreviewName(OverlayPreview preview) noexcept {
+        switch (preview) {
+            case OverlayPreview::Overlay:
+                return "overlay";
+            case OverlayPreview::Live:
+                return "live";
+            case OverlayPreview::Thumbnail:
+                return "thumbnail";
+        }
+        return "unknown";
     }
-    return "unknown";
-}
 
 } // namespace
 
@@ -27,9 +27,7 @@ void OverlayService::DrainCommands(
   OverlayRenderer& renderer,
   OverlayActiveSession& active,
   SettingsPtr& settingsSnapshot,
-  PreviewState& preview,
-  bool& shutdown,
-  bool& resetDevice) noexcept {
+  PreviewState& preview) noexcept {
     if (m_settingsDirty.exchange(false, std::memory_order_acq_rel)) {
         settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
         m_outlineManager.ApplySettings(*settingsSnapshot);
@@ -42,18 +40,12 @@ void OverlayService::DrainCommands(
         m_pendingOutlineCommand.reset();
     }
     if (outlineCommand) {
-        ApplyCommand(renderer, *outlineCommand, active, settingsSnapshot, preview, shutdown, resetDevice);
-        if (shutdown) {
-            return;
-        }
+        ApplyCommand(renderer, *outlineCommand, active, settingsSnapshot, preview);
     }
 
     OverlayCmd cmd;
     while (m_commands.pop(cmd)) {
-        ApplyCommand(renderer, cmd, active, settingsSnapshot, preview, shutdown, resetDevice);
-        if (shutdown) {
-            return;
-        }
+        ApplyCommand(renderer, cmd, active, settingsSnapshot, preview);
     }
 }
 
@@ -61,9 +53,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
   const OverlayCmd& cmd,
   OverlayActiveSession& active,
   SettingsPtr& settingsSnapshot,
-  PreviewState& preview,
-  bool& shutdown,
-  bool& resetDevice) noexcept {
+  PreviewState& preview) noexcept {
     std::visit(
       [&](const auto& value) noexcept {
           using T = std::decay_t<decltype(value)>;
@@ -75,7 +65,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               }
               const POINT cursor = m_latestMousePos ? m_latestMousePos->load(std::memory_order_relaxed) : POINT{};
               const vec::i4 finalRawRect = session::ComputeBounds(active, cursor);
-              m_latestBounds.Store(finalRawRect);
+              m_latestBounds = finalRawRect;
               const HWND target = session::Target(active);
               LOG_DEBUG("interaction: id={} commit received cursor={} raw_rect={} parked={}",
                 value.interactionId,
@@ -88,10 +78,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                         value.interactionId,
                         reinterpret_cast<void*>(target));
                   }
-                  renderer.ClearSnapshot();
-                  active = std::monostate{};
-                  preview.Reset();
-                  session::SetCursor(active);
+                  CompleteInteraction(renderer, active, preview);
                   return;
               }
               EnsurePlacementWorker().Submit(PlacementRequest{
@@ -100,7 +87,11 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                 .target = target,
                 .rawRect = finalRawRect,
               });
+              if (preview.captureInProgress) {
+                  renderer.CancelSnapshotCapture();
+              }
               preview.capturePending = false;
+              preview.captureInProgress = false;
               preview.parkPending = false;
               preview.finishing = true;
               session::SetCursor(active);
@@ -111,6 +102,9 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                   return;
               }
               LOG_DEBUG("interaction: id={} cancel received park_submitted={}", value.interactionId, preview.parkSubmitted);
+              if (preview.captureInProgress) {
+                  renderer.CancelSnapshotCapture();
+              }
               if ((preview.parkSubmitted || preview.livePlacementSubmitted) && m_placementWorker) {
                   m_placementWorker->Submit(PlacementRequest{
                     .interactionId = value.interactionId,
@@ -119,39 +113,32 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                     .rawRect = session::OriginalRawRect(active),
                   });
                   preview.capturePending = false;
+                  preview.captureInProgress = false;
                   preview.parkPending = false;
                   preview.finishing = true;
               } else {
-                  renderer.ClearSnapshot();
-                  active = std::monostate{};
-                  preview.Reset();
+                  CompleteInteraction(renderer, active, preview);
               }
               session::SetCursor(active);
-          } else if constexpr (std::is_same_v<T, ResetDevice>) {
-              resetDevice = true;
-          } else if constexpr (std::is_same_v<T, Shutdown>) {
-              RestoreBeforeTeardown(active, preview);
-              renderer.ClearSnapshot();
-              active = std::monostate{};
-              preview.Reset();
-              session::SetCursor(active);
-              shutdown = true;
           } else if constexpr (std::is_same_v<T, UseBuiltInShader>) {
               renderer.UseBuiltInShader(value.generation);
           } else if constexpr (std::is_same_v<T, InstallPixelShader>) {
               renderer.InstallPixelShader(value.bytecode, value.generation);
           } else if constexpr (std::is_same_v<T, BeginDrag>) {
+              if (session::IsActive(active)) {
+                  LOG_WARN("interaction: id={} begin ignored active_id={}", value.session.interactionId, session::Id(active));
+                  return;
+              }
               settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
               renderer.ResetSessionAnimation();
               active = value.session;
               const vec::i4 initialRawRect = session::InitialBounds(value.session, value);
-              m_latestBounds.Store(initialRawRect);
+              m_latestBounds = initialRawRect;
               renderer.ClearSnapshot();
               preview.Reset();
               preview.mode = settingsSnapshot->move_preview;
               preview.liveRate = settingsSnapshot->live_preview_rate;
               preview.capturePending = preview.mode == OverlayPreview::Thumbnail;
-              preview.captureVisualBounds = ApplyVisualOffset(initialRawRect, value.session.visualOffset);
               if (preview.mode != OverlayPreview::Overlay) {
                   EnsurePlacementWorker();
               }
@@ -164,16 +151,19 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                 preview.capturePending);
               session::SetCursor(active);
           } else if constexpr (std::is_same_v<T, BeginResize>) {
+              if (session::IsActive(active)) {
+                  LOG_WARN("interaction: id={} begin ignored active_id={}", value.session.interactionId, session::Id(active));
+                  return;
+              }
               settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
               renderer.ResetSessionAnimation();
               active = value.session;
-              m_latestBounds.Store(value.session.startRect);
+              m_latestBounds = value.session.startRect;
               renderer.ClearSnapshot();
               preview.Reset();
               preview.mode = settingsSnapshot->resize_preview;
               preview.liveRate = settingsSnapshot->live_preview_rate;
               preview.capturePending = preview.mode == OverlayPreview::Thumbnail;
-              preview.captureVisualBounds = ApplyVisualOffset(value.session.startRect, value.session.visualOffset);
               if (preview.mode != OverlayPreview::Overlay) {
                   EnsurePlacementWorker();
               }

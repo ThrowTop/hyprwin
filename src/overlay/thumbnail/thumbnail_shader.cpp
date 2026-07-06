@@ -48,26 +48,31 @@ bool ThumbnailShader::Create(DxContext& dx) noexcept {
     return true;
 }
 
-bool ThumbnailShader::Capture(DxContext& dx, HWND target, vec::i4 visualBounds) noexcept {
+WindowSnapshotStatus ThumbnailShader::BeginCapture(DxContext& dx, HWND target) noexcept {
     Clear();
-    if (visualBounds.Width() <= 0 || visualBounds.Height() <= 0) {
-        return false;
+    return m_capture.Begin(dx.device.Get(), dx.context.Get(), dx.dxgiDevice.Get(), target);
+}
+
+WindowSnapshotStatus ThumbnailShader::UpdateCapture(DxContext& dx) noexcept {
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    const WindowSnapshotStatus status = m_capture.Update(texture);
+    if (status != WindowSnapshotStatus::Ready) {
+        return status;
     }
 
-    WindowSnapshot snapshot = m_capture.Capture(dx.device.Get(), dx.context.Get(), dx.dxgiDevice.Get(), target);
-    if (!snapshot.texture) {
-        return false;
-    }
-
-    m_texture = std::move(snapshot.texture);
+    m_texture = std::move(texture);
     const HRESULT hr = dx.device->CreateShaderResourceView(m_texture.Get(), nullptr, &m_srv);
     if (FAILED(hr)) {
         LOG_WARN("thumbnail_shader: CreateShaderResourceView failed hr=0x{:08X}", HrCode(hr));
         Clear();
-        return false;
+        return WindowSnapshotStatus::Failed;
     }
 
-    return true;
+    return WindowSnapshotStatus::Ready;
+}
+
+void ThumbnailShader::CancelCapture() noexcept {
+    m_capture.Cancel();
 }
 
 void ThumbnailShader::Draw(DxContext& dx, vec::i4 canvasBounds, vec::i4 screenBounds, float cornerRadius) noexcept {
@@ -80,8 +85,6 @@ void ThumbnailShader::Draw(DxContext& dx, vec::i4 canvasBounds, vec::i4 screenBo
         return;
     }
     auto& constants = *static_cast<Constants*>(mapped.pData);
-    constants.canvasSize[0] = static_cast<float>(canvasBounds.Width());
-    constants.canvasSize[1] = static_cast<float>(canvasBounds.Height());
     constants.rectPosition[0] = static_cast<float>(screenBounds.x - canvasBounds.x);
     constants.rectPosition[1] = static_cast<float>(screenBounds.y - canvasBounds.y);
     constants.rectSize[0] = static_cast<float>(screenBounds.Width());
@@ -102,6 +105,7 @@ void ThumbnailShader::Draw(DxContext& dx, vec::i4 canvasBounds, vec::i4 screenBo
 }
 
 void ThumbnailShader::Clear() noexcept {
+    CancelCapture();
     m_srv.Reset();
     m_texture.Reset();
 }

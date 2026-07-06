@@ -30,12 +30,6 @@ struct PlacementRequest {
 struct PlacementResult {
     std::uint64_t interactionId = 0;
     PlacementKind kind = PlacementKind::Live;
-    HWND target = nullptr;
-    vec::i4 rawRect{};
-    vec::i4 actualRawRect{};
-    bool actualRawRectAvailable = false;
-    bool success = false;
-    DWORD error = ERROR_SUCCESS;
 };
 
 class PlacementWorker {

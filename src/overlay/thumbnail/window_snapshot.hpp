@@ -4,14 +4,16 @@
 #include <dxgi.h>
 #include <windows.h>
 
+#include <memory>
+
 #include <wrl/client.h>
 
 namespace hw::thumbnail {
 
-struct WindowSnapshot {
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-    UINT width = 0;
-    UINT height = 0;
+enum class WindowSnapshotStatus {
+    Pending,
+    Ready,
+    Failed,
 };
 
 class WindowSnapshotCapture {
@@ -21,9 +23,17 @@ class WindowSnapshotCapture {
     WindowSnapshotCapture& operator=(const WindowSnapshotCapture&) = delete;
     ~WindowSnapshotCapture();
 
-    [[nodiscard]] WindowSnapshot Capture(ID3D11Device* device, ID3D11DeviceContext* context, IDXGIDevice* dxgiDevice, HWND target) noexcept;
+    [[nodiscard]] WindowSnapshotStatus Begin(
+      ID3D11Device* device,
+      ID3D11DeviceContext* context,
+      IDXGIDevice* dxgiDevice,
+      HWND target) noexcept;
+    [[nodiscard]] WindowSnapshotStatus Update(Microsoft::WRL::ComPtr<ID3D11Texture2D>& texture) noexcept;
+    void Cancel() noexcept;
 
   private:
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
     bool m_apartmentInitialized = false;
     bool m_borderToggleAvailable = false;
     bool m_borderlessAccessRequested = false;

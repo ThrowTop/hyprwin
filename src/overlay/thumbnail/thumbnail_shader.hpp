@@ -12,7 +12,9 @@ namespace hw::thumbnail {
 class ThumbnailShader {
   public:
     [[nodiscard]] bool Create(DxContext& dx) noexcept;
-    [[nodiscard]] bool Capture(DxContext& dx, HWND target, vec::i4 visualBounds) noexcept;
+    [[nodiscard]] WindowSnapshotStatus BeginCapture(DxContext& dx, HWND target) noexcept;
+    [[nodiscard]] WindowSnapshotStatus UpdateCapture(DxContext& dx) noexcept;
+    void CancelCapture() noexcept;
     void Draw(DxContext& dx, vec::i4 canvasBounds, vec::i4 screenBounds, float cornerRadius) noexcept;
     void Clear() noexcept;
     void Release() noexcept;
@@ -23,12 +25,12 @@ class ThumbnailShader {
 
   private:
     struct alignas(16) Constants {
-        float canvasSize[2]{};
         float rectPosition[2]{};
         float rectSize[2]{};
         float cornerRadius = 0.0f;
-        float padding = 0.0f;
+        float padding[3]{};
     };
+    static_assert(sizeof(Constants) == 32);
 
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_pixelShader;

@@ -12,29 +12,27 @@
 
 namespace hw {
 namespace {
-
-bool RecoverRenderer(OverlayRenderer& renderer, RenderStatus status) noexcept {
-    switch (status) {
-        case RenderStatus::Ok:
-            return true;
-        case RenderStatus::SwapchainInvalid:
-        case RenderStatus::DeviceLost:
-            if (renderer.ResetDevice()) {
-                LOG_DEBUG("overlay_service: renderer recovery succeeded status={}", RenderStatusName(status));
+    bool RecoverRenderer(OverlayRenderer& renderer, RenderStatus status) noexcept {
+        switch (status) {
+            case RenderStatus::Ok:
                 return true;
-            }
-            LOG_ERROR("overlay_service: renderer recovery failed status={}", RenderStatusName(status));
-            return false;
+            case RenderStatus::SwapchainInvalid:
+            case RenderStatus::DeviceLost:
+                if (renderer.ResetDevice()) {
+                    LOG_DEBUG("overlay_service: renderer recovery succeeded status={}", RenderStatusName(status));
+                    return true;
+                }
+                LOG_ERROR("overlay_service: renderer recovery failed status={}", RenderStatusName(status));
+                return false;
+        }
+
+        return false;
     }
 
-    return false;
-}
-
-void HandleDisplayChange(OverlayWindow& window, OverlayRenderer& renderer) noexcept {
-    window.ForceVirtualDesktopReapply();
-    renderer.HandleDisplayChange(window.Bounds());
-}
-
+    void HandleDisplayChange(OverlayWindow& window, OverlayRenderer& renderer) noexcept {
+        window.ForceVirtualDesktopReapply();
+        renderer.HandleDisplayChange(window.Bounds());
+    }
 } // namespace
 
 OverlayService::OverlayService(HINSTANCE instance, std::atomic<POINT>* latestMousePos, AtomicSettingsPtr* settings)
@@ -66,8 +64,19 @@ void OverlayService::Start() {
 }
 
 bool OverlayService::Send(const OverlayCmd& cmd) noexcept {
+    const bool beginsInteraction = std::holds_alternative<BeginDrag>(cmd) || std::holds_alternative<BeginResize>(cmd);
+    if (beginsInteraction) {
+        bool expected = false;
+        if (!m_interactionReserved.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return false;
+        }
+    }
+
     if (!m_commands.push(cmd)) {
-        LOG_WARN("Overlay command queue full; dropping command");
+        if (beginsInteraction) {
+            m_interactionReserved.store(false, std::memory_order_release);
+        }
+        LOG_ERROR("Overlay command queue full; dropping command");
         return false;
     }
 
@@ -86,10 +95,6 @@ void OverlayService::PublishOutlineUpdate(outline::Update update) noexcept {
         m_pendingOutlineCommand = std::visit([](auto&& value) -> OverlayCmd { return std::forward<decltype(value)>(value); }, std::move(update));
     }
     m_cv.notify_one();
-}
-
-vec::i4 OverlayService::GetLatestBounds() const noexcept {
-    return m_latestBounds.Load();
 }
 
 void OverlayService::OverlayLoop(std::stop_token token) noexcept {
@@ -115,10 +120,8 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
 
     OverlayActiveSession active;
     PreviewState preview;
-    bool shutdown = false;
-    bool resetDevice = false;
 
-    while (!token.stop_requested() && !shutdown) {
+    while (!token.stop_requested()) {
         if (!session::IsActive(active)) {
             std::unique_lock lock(m_mutex);
             m_cv.wait(lock, [&] {
@@ -137,18 +140,8 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             }
 
             DrainPlacementResults(renderer, active, preview);
-            DrainCommands(renderer, active, settingsSnapshot, preview, shutdown, resetDevice);
+            DrainCommands(renderer, active, settingsSnapshot, preview);
             RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
-            if (resetDevice) {
-                RestoreBeforeTeardown(active, preview);
-                renderer.ClearSnapshot();
-                active = std::monostate{};
-                preview.Reset();
-                if (!renderer.ResetDevice()) {
-                    LOG_ERROR("overlay_service: renderer reset failed");
-                }
-                resetDevice = false;
-            }
 
             if (!session::IsActive(active)) {
                 continue;
@@ -161,9 +154,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
                 LOG_ERROR("overlay_service: ClearForShow failed status={}", RenderStatusName(clearStatus));
                 RecoverRenderer(renderer, clearStatus);
                 RestoreBeforeTeardown(active, preview);
-                renderer.ClearSnapshot();
-                active = std::monostate{};
-                preview.Reset();
+                CompleteInteraction(renderer, active, preview);
                 continue;
             }
             window.Show();
@@ -174,22 +165,10 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             HandleDisplayChange(window, renderer);
         }
         DrainPlacementResults(renderer, active, preview);
-        DrainCommands(renderer, active, settingsSnapshot, preview, shutdown, resetDevice);
+        DrainCommands(renderer, active, settingsSnapshot, preview);
         RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
-        if (resetDevice) {
-            RestoreBeforeTeardown(active, preview);
-            renderer.ClearSnapshot();
-            active = std::monostate{};
-            preview.Reset();
-            if (!renderer.ResetDevice()) {
-                LOG_ERROR("overlay_service: renderer reset failed");
-            } else {
-                window.ForceVirtualDesktopReapply();
-            }
-            resetDevice = false;
-        }
 
-        if (shutdown || token.stop_requested()) {
+        if (token.stop_requested()) {
             break;
         }
 
@@ -199,9 +178,8 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         }
 
         const POINT cursor = m_latestMousePos ? m_latestMousePos->load(std::memory_order_relaxed) : POINT{};
-        const vec::i4 logicalBounds =
-          (preview.parkPending || preview.finishing) ? m_latestBounds.Load() : session::ComputeBounds(active, cursor);
-        m_latestBounds.Store(logicalBounds);
+        const vec::i4 logicalBounds = (preview.parkPending || preview.finishing) ? m_latestBounds : session::ComputeBounds(active, cursor);
+        m_latestBounds = logicalBounds;
 
         const vec::i4 visualBounds = ApplyVisualOffset(logicalBounds, session::VisualOffset(active));
         const SessionType sessionType = GetSessionType(active);
@@ -210,18 +188,23 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             LOG_ERROR("overlay_service: Render failed status={}", RenderStatusName(renderStatus));
             RecoverRenderer(renderer, renderStatus);
             RestoreBeforeTeardown(active, preview);
-            renderer.ClearSnapshot();
-            active = std::monostate{};
-            preview.Reset();
+            CompleteInteraction(renderer, active, preview);
         } else if (preview.capturePending) {
             preview.capturePending = false;
             LOG_DEBUG("interaction: id={} first outline presented; snapshot capture starting", session::Id(active));
-            const bool snapshotCaptured = renderer.CaptureSnapshot(session::Target(active), preview.captureVisualBounds);
-            preview.parkPending = snapshotCaptured;
-            if (!snapshotCaptured) {
-                renderer.ClearSnapshot();
+            const thumbnail::WindowSnapshotStatus status = renderer.BeginSnapshotCapture(session::Target(active));
+            preview.captureInProgress = status == thumbnail::WindowSnapshotStatus::Pending;
+            preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
+            if (status == thumbnail::WindowSnapshotStatus::Failed) {
+                LOG_DEBUG("interaction: id={} snapshot capture unavailable; continuing overlay-only", session::Id(active));
             }
-            LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), snapshotCaptured);
+        } else if (preview.captureInProgress) {
+            const thumbnail::WindowSnapshotStatus status = renderer.UpdateSnapshotCapture();
+            if (status != thumbnail::WindowSnapshotStatus::Pending) {
+                preview.captureInProgress = false;
+                preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
+                LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), status == thumbnail::WindowSnapshotStatus::Ready);
+            }
         } else if (preview.parkPending) {
             const InteractionId interactionId = session::Id(active);
             LOG_DEBUG("interaction: id={} first thumbnail frame presented; queuing park", interactionId);
@@ -248,8 +231,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             preview.parkPending = false;
         } else if (preview.mode == OverlayPreview::Live && !preview.finishing) {
             const auto now = std::chrono::steady_clock::now();
-            const vec::i4 comparisonRawRect =
-              preview.livePlacementSubmitted ? preview.lastLiveRawRect : session::OriginalRawRect(active);
+            const vec::i4 comparisonRawRect = preview.livePlacementSubmitted ? preview.lastLiveRawRect : session::OriginalRawRect(active);
             const bool rateReady = preview.liveRate == 0 || now >= preview.nextLivePlacement;
             if (rateReady && logicalBounds != comparisonRawRect) {
                 EnsurePlacementWorker().Submit(PlacementRequest{
@@ -269,10 +251,9 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
     }
 
     RestoreBeforeTeardown(active, preview);
-    renderer.ClearSnapshot();
+    CompleteInteraction(renderer, active, preview);
     window.Hide();
     renderer.Destroy();
     window.Destroy();
 }
-
 } // namespace hw

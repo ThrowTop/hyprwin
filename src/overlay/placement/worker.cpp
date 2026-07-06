@@ -47,47 +47,21 @@ void PlacementWorker::WorkerLoop(std::stop_token token) noexcept {
             m_busy = true;
         }
 
-        PlacementResult result{
-          .interactionId = request.interactionId,
-          .kind = request.kind,
-          .target = request.target,
-          .rawRect = request.rawRect,
-        };
-
-        if (!IsWindow(request.target) || request.rawRect.Width() <= 0 || request.rawRect.Height() <= 0) {
-            result.error = ERROR_INVALID_WINDOW_HANDLE;
-        } else {
-            UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
-            int width = request.rawRect.Width();
-            int height = request.rawRect.Height();
-            if (request.kind == PlacementKind::Park) {
-                flags |= SWP_NOSIZE;
-                width = 0;
-                height = 0;
-            }
-            if (SetWindowPos(request.target,
-                  nullptr,
-                  request.rawRect.x,
-                  request.rawRect.y,
-                  width,
-                  height,
-                  flags)) {
-                result.success = true;
-            } else {
-                result.error = GetLastError();
-            }
-        }
-
+        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        int width = request.rawRect.Width();
+        int height = request.rawRect.Height();
         if (request.kind == PlacementKind::Park) {
-            RECT actualRawRect{};
-            if (GetWindowRect(request.target, &actualRawRect)) {
-                result.actualRawRect = vec::i4::FromWin32(actualRawRect);
-                result.actualRawRectAvailable = true;
-            }
+            flags |= SWP_NOSIZE;
+            width = 0;
+            height = 0;
         }
+        (void)SetWindowPos(request.target, nullptr, request.rawRect.x, request.rawRect.y, width, height, flags);
 
         if (m_publish) {
-            m_publish(result);
+            m_publish(PlacementResult{
+              .interactionId = request.interactionId,
+              .kind = request.kind,
+            });
         }
 
         {

@@ -48,7 +48,9 @@ class OverlayRenderer {
     void UseBuiltInShader(std::uint64_t generation) noexcept;
     void InstallPixelShader(std::shared_ptr<const outline::Bytecode> bytecode, std::uint64_t generation) noexcept;
     void ResetSessionAnimation() noexcept;
-    [[nodiscard]] bool CaptureSnapshot(HWND target, const vec::i4& visualBounds) noexcept;
+    [[nodiscard]] thumbnail::WindowSnapshotStatus BeginSnapshotCapture(HWND target) noexcept;
+    [[nodiscard]] thumbnail::WindowSnapshotStatus UpdateSnapshotCapture() noexcept;
+    void CancelSnapshotCapture() noexcept;
     void ClearSnapshot() noexcept;
 
     [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept;

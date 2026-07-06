@@ -1,9 +1,8 @@
 cbuffer ThumbnailConstants : register(b0) {
-    float2 canvasSize;
     float2 rectPosition;
     float2 rectSize;
     float cornerRadius;
-    float padding;
+    float3 padding;
 };
 
 Texture2D thumbnailTexture : register(t0);

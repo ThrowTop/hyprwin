@@ -218,7 +218,7 @@ void Mouse::UninstallHook() noexcept {
     m_uninstallRequested.store(true, std::memory_order_release);
     m_installRequested.store(false, std::memory_order_release);
 
-    m_cancelRequested.store(true, std::memory_order_release);
+    m_finishRequested.store(true, std::memory_order_release);
     m_dispatchCv.notify_one();
 
     const DWORD utid = m_hookThreadId.load(std::memory_order_acquire);
@@ -335,12 +335,12 @@ void Mouse::DispatchThreadMain(std::stop_token token) noexcept {
     while (!token.stop_requested()) {
         std::unique_lock lock(m_dispatchMutex);
         m_dispatchCv.wait(lock, [&] {
-            return token.stop_requested() || !m_buttonQueue.empty() || m_queueOverflowed.load(std::memory_order_acquire) || m_cancelRequested.load(std::memory_order_acquire);
+            return token.stop_requested() || !m_buttonQueue.empty() || m_queueOverflowed.load(std::memory_order_acquire) || m_finishRequested.load(std::memory_order_acquire);
         });
         lock.unlock();
 
-        if (m_cancelRequested.exchange(false, std::memory_order_acq_rel)) {
-            CancelOperation();
+        if (m_finishRequested.exchange(false, std::memory_order_acq_rel)) {
+            FinishOperation();
         }
 
         if (m_queueOverflowed.exchange(false, std::memory_order_acq_rel)) {

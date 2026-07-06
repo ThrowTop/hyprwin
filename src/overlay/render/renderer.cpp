@@ -152,8 +152,16 @@ void OverlayRenderer::ResetSessionAnimation() noexcept {
     m_shaderSessionSeconds = 0.0f;
 }
 
-bool OverlayRenderer::CaptureSnapshot(HWND target, const vec::i4& visualBounds) noexcept {
-    return m_thumbnailShader.Capture(m_dx, target, visualBounds);
+thumbnail::WindowSnapshotStatus OverlayRenderer::BeginSnapshotCapture(HWND target) noexcept {
+    return m_thumbnailShader.BeginCapture(m_dx, target);
+}
+
+thumbnail::WindowSnapshotStatus OverlayRenderer::UpdateSnapshotCapture() noexcept {
+    return m_thumbnailShader.UpdateCapture(m_dx);
+}
+
+void OverlayRenderer::CancelSnapshotCapture() noexcept {
+    m_thumbnailShader.CancelCapture();
 }
 
 void OverlayRenderer::ClearSnapshot() noexcept {

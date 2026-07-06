@@ -12,19 +12,22 @@
 #include <winrt/Windows.Security.Authorization.AppCapabilityAccess.h>
 #include <winrt/base.h>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
 
 namespace hw::thumbnail {
 namespace {
+    using namespace winrt::Windows::Foundation;
     using namespace winrt::Windows::Graphics;
     using namespace winrt::Windows::Graphics::Capture;
     using namespace winrt::Windows::Graphics::DirectX;
     using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
+    using namespace winrt::Windows::Security::Authorization::AppCapabilityAccess;
 
-    constexpr DWORD kCaptureTimeoutMs = 250;
+    constexpr auto kCaptureTimeout = std::chrono::milliseconds{100};
 
-    const char* AccessStatusName(winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus status) noexcept {
-        using winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
+    const char* AccessStatusName(AppCapabilityAccessStatus status) noexcept {
         switch (status) {
             case AppCapabilityAccessStatus::DeniedBySystem:
                 return "DeniedBySystem";
@@ -41,13 +44,7 @@ namespace {
     }
 
     struct FrameSignal {
-        FrameSignal() noexcept : event(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {}
-        ~FrameSignal() {
-            if (event) {
-                CloseHandle(event);
-            }
-        }
-        HANDLE event = nullptr;
+        std::atomic_bool ready{false};
     };
 
     unsigned HrCode(HRESULT hr) noexcept {
@@ -56,7 +53,7 @@ namespace {
 
     IDirect3DDevice CreateCaptureDevice(IDXGIDevice* dxgiDevice) {
         IDirect3DDevice result{nullptr};
-        winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice, reinterpret_cast<IInspectable**>(winrt::put_abi(result))));
+        winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice, reinterpret_cast<::IInspectable**>(winrt::put_abi(result))));
         return result;
     }
 
@@ -68,7 +65,10 @@ namespace {
         return item;
     }
 
-    WindowSnapshot CopyFrame(ID3D11Device* device, ID3D11DeviceContext* context, const Direct3D11CaptureFrame& frame) {
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> CopyFrame(
+      ID3D11Device* device,
+      ID3D11DeviceContext* context,
+      const Direct3D11CaptureFrame& frame) {
         const SizeInt32 contentSize = frame.ContentSize();
         if (contentSize.Width <= 0 || contentSize.Height <= 0) {
             return {};
@@ -89,8 +89,8 @@ namespace {
         desc.CPUAccessFlags = 0;
         desc.MiscFlags = 0;
 
-        WindowSnapshot result{};
-        winrt::check_hresult(device->CreateTexture2D(&desc, nullptr, &result.texture));
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> result;
+        winrt::check_hresult(device->CreateTexture2D(&desc, nullptr, &result));
 
         const D3D11_BOX sourceBox{
           0,
@@ -100,14 +100,34 @@ namespace {
           desc.Height,
           1,
         };
-        context->CopySubresourceRegion(result.texture.Get(), 0, 0, 0, 0, source.Get(), 0, &sourceBox);
-        result.width = desc.Width;
-        result.height = desc.Height;
+        context->CopySubresourceRegion(result.Get(), 0, 0, 0, 0, source.Get(), 0, &sourceBox);
         return result;
     }
 } // namespace
 
-WindowSnapshotCapture::WindowSnapshotCapture() noexcept {
+struct WindowSnapshotCapture::Impl {
+    enum class Phase {
+        Idle,
+        Permission,
+        Frame,
+    };
+
+    Phase phase = Phase::Idle;
+    HWND target = nullptr;
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    IAsyncOperation<AppCapabilityAccessStatus> accessOperation{nullptr};
+    IDirect3DDevice captureDevice{nullptr};
+    GraphicsCaptureItem item{nullptr};
+    Direct3D11CaptureFramePool framePool{nullptr};
+    GraphicsCaptureSession session{nullptr};
+    winrt::event_token frameArrivedToken{};
+    std::shared_ptr<FrameSignal> frameSignal;
+    std::chrono::steady_clock::time_point deadline{};
+};
+
+WindowSnapshotCapture::WindowSnapshotCapture() noexcept : m_impl(std::make_unique<Impl>()) {
     try {
         winrt::init_apartment(winrt::apartment_type::multi_threaded);
         m_apartmentInitialized = true;
@@ -124,95 +144,180 @@ WindowSnapshotCapture::WindowSnapshotCapture() noexcept {
 }
 
 WindowSnapshotCapture::~WindowSnapshotCapture() {
+    Cancel();
+    m_impl->accessOperation = nullptr;
     if (m_apartmentInitialized) {
         winrt::uninit_apartment();
     }
 }
 
-WindowSnapshot WindowSnapshotCapture::Capture(ID3D11Device* device, ID3D11DeviceContext* context, IDXGIDevice* dxgiDevice, HWND target) noexcept {
-    if (!m_apartmentInitialized || !device || !context || !dxgiDevice || !IsWindow(target)) {
-        return {};
+WindowSnapshotStatus WindowSnapshotCapture::Begin(
+  ID3D11Device* device,
+  ID3D11DeviceContext* context,
+  IDXGIDevice* dxgiDevice,
+  HWND target) noexcept {
+    Cancel();
+    if (!m_apartmentInitialized || !m_borderToggleAvailable || !device || !context || !dxgiDevice || !IsWindow(target)) {
+        return WindowSnapshotStatus::Failed;
     }
 
-    const char* stage = "apartment";
-    try {
-        stage = "support";
-        if (!GraphicsCaptureSession::IsSupported()) {
-            return {};
-        }
+    m_impl->target = target;
+    m_impl->device = device;
+    m_impl->context = context;
+    m_impl->dxgiDevice = dxgiDevice;
 
-        if (!m_borderToggleAvailable) {
-            return {};
-        }
+    if (m_borderlessAccessGranted) {
+        m_impl->phase = Impl::Phase::Permission;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> ignored;
+        return Update(ignored);
+    }
 
-        if (!m_borderlessAccessRequested) {
-            stage = "borderless-access";
+    if (!m_borderlessAccessRequested) {
+        try {
+            m_impl->accessOperation = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless);
             m_borderlessAccessRequested = true;
-            const auto status = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless).get();
-            m_borderlessAccessGranted =
-              status == winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::Allowed;
-            if (m_borderlessAccessGranted) {
-                LOG_INFO("window_snapshot: borderless capture access status={}", AccessStatusName(status));
-            } else {
-                LOG_WARN("window_snapshot: borderless capture access status={}; thumbnail capture disabled", AccessStatusName(status));
-            }
+        } catch (const winrt::hresult_error& error) {
+            LOG_WARN("window_snapshot: borderless access request failed hr=0x{:08X}", HrCode(error.code()));
+            Cancel();
+            return WindowSnapshotStatus::Failed;
         }
-
-        if (!m_borderlessAccessGranted) {
-            return {};
-        }
-
-        stage = "device";
-        const IDirect3DDevice captureDevice = CreateCaptureDevice(dxgiDevice);
-        stage = "item";
-        const GraphicsCaptureItem item = CreateCaptureItem(target);
-        const SizeInt32 itemSize = item.Size();
-        if (itemSize.Width <= 0 || itemSize.Height <= 0) {
-            return {};
-        }
-
-        const auto signal = std::make_shared<FrameSignal>();
-        if (!signal->event) {
-            return {};
-        }
-
-        stage = "frame-pool";
-        const Direct3D11CaptureFramePool framePool = Direct3D11CaptureFramePool::CreateFreeThreaded(captureDevice, DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, itemSize);
-        stage = "session";
-        const GraphicsCaptureSession session = framePool.CreateCaptureSession(item);
-
-        stage = "borderless-session";
-        session.IsBorderRequired(false);
-
-        stage = "event";
-        const auto arrived =
-          framePool.FrameArrived([signal](const Direct3D11CaptureFramePool&, const winrt::Windows::Foundation::IInspectable&) noexcept { SetEvent(signal->event); });
-
-        stage = "start";
-        session.IsCursorCaptureEnabled(false);
-        session.StartCapture();
-
-        WindowSnapshot result{};
-        stage = "wait";
-        if (WaitForSingleObject(signal->event, kCaptureTimeoutMs) == WAIT_OBJECT_0) {
-            if (const Direct3D11CaptureFrame frame = framePool.TryGetNextFrame()) {
-                stage = "copy";
-                result = CopyFrame(device, context, frame);
-                frame.Close();
-            }
-        } else {
-            LOG_WARN("window_snapshot: capture timed out target={:p}", reinterpret_cast<void*>(target));
-        }
-
-        framePool.FrameArrived(arrived);
-        session.Close();
-        framePool.Close();
-
-        return result;
-    } catch (const winrt::hresult_error& error) {
-        LOG_WARN("window_snapshot: capture failed target={:p} stage={} hr=0x{:08X}", reinterpret_cast<void*>(target), stage, HrCode(error.code()));
-        return {};
     }
+
+    if (!m_impl->accessOperation) {
+        Cancel();
+        return WindowSnapshotStatus::Failed;
+    }
+
+    m_impl->phase = Impl::Phase::Permission;
+    return WindowSnapshotStatus::Pending;
+}
+
+WindowSnapshotStatus WindowSnapshotCapture::Update(Microsoft::WRL::ComPtr<ID3D11Texture2D>& texture) noexcept {
+    texture.Reset();
+    if (m_impl->phase == Impl::Phase::Idle) {
+        return WindowSnapshotStatus::Failed;
+    }
+
+    const char* stage = "permission";
+    try {
+        if (m_impl->phase == Impl::Phase::Permission) {
+            if (!m_borderlessAccessGranted) {
+                if (!m_impl->accessOperation || m_impl->accessOperation.Status() == winrt::Windows::Foundation::AsyncStatus::Started) {
+                    return WindowSnapshotStatus::Pending;
+                }
+                if (m_impl->accessOperation.Status() != winrt::Windows::Foundation::AsyncStatus::Completed) {
+                    LOG_WARN("window_snapshot: borderless capture access request did not complete");
+                    Cancel();
+                    return WindowSnapshotStatus::Failed;
+                }
+
+                const AppCapabilityAccessStatus status = m_impl->accessOperation.GetResults();
+                m_impl->accessOperation = nullptr;
+                m_borderlessAccessGranted = status == AppCapabilityAccessStatus::Allowed;
+                if (m_borderlessAccessGranted) {
+                    LOG_INFO("window_snapshot: borderless capture access status={}", AccessStatusName(status));
+                } else {
+                    LOG_WARN("window_snapshot: borderless capture access status={}; thumbnail capture disabled", AccessStatusName(status));
+                    Cancel();
+                    return WindowSnapshotStatus::Failed;
+                }
+            }
+
+            stage = "support";
+            if (!GraphicsCaptureSession::IsSupported()) {
+                Cancel();
+                return WindowSnapshotStatus::Failed;
+            }
+
+            stage = "device";
+            m_impl->captureDevice = CreateCaptureDevice(m_impl->dxgiDevice.Get());
+            stage = "item";
+            m_impl->item = CreateCaptureItem(m_impl->target);
+            const SizeInt32 itemSize = m_impl->item.Size();
+            if (itemSize.Width <= 0 || itemSize.Height <= 0) {
+                Cancel();
+                return WindowSnapshotStatus::Failed;
+            }
+
+            stage = "frame-pool";
+            m_impl->framePool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+              m_impl->captureDevice,
+              DirectXPixelFormat::B8G8R8A8UIntNormalized,
+              1,
+              itemSize);
+            stage = "session";
+            m_impl->session = m_impl->framePool.CreateCaptureSession(m_impl->item);
+            m_impl->session.IsBorderRequired(false);
+            m_impl->session.IsCursorCaptureEnabled(false);
+
+            m_impl->frameSignal = std::make_shared<FrameSignal>();
+            const std::shared_ptr<FrameSignal> signal = m_impl->frameSignal;
+            m_impl->frameArrivedToken =
+              m_impl->framePool.FrameArrived([signal](
+                                               const Direct3D11CaptureFramePool&,
+                                               const winrt::Windows::Foundation::IInspectable&) noexcept {
+                  signal->ready.store(true, std::memory_order_release);
+              });
+
+            stage = "start";
+            m_impl->session.StartCapture();
+            m_impl->deadline = std::chrono::steady_clock::now() + kCaptureTimeout;
+            m_impl->phase = Impl::Phase::Frame;
+        }
+
+        if (m_impl->frameSignal->ready.load(std::memory_order_acquire)) {
+            if (const Direct3D11CaptureFrame frame = m_impl->framePool.TryGetNextFrame()) {
+                stage = "copy";
+                texture = CopyFrame(m_impl->device.Get(), m_impl->context.Get(), frame);
+                frame.Close();
+                Cancel();
+                return texture ? WindowSnapshotStatus::Ready : WindowSnapshotStatus::Failed;
+            }
+        }
+
+        if (std::chrono::steady_clock::now() >= m_impl->deadline) {
+            LOG_WARN("window_snapshot: capture timed out target={:p}", reinterpret_cast<void*>(m_impl->target));
+            Cancel();
+            return WindowSnapshotStatus::Failed;
+        }
+        return WindowSnapshotStatus::Pending;
+    } catch (const winrt::hresult_error& error) {
+        LOG_WARN("window_snapshot: capture failed target={:p} stage={} hr=0x{:08X}",
+          reinterpret_cast<void*>(m_impl->target),
+          stage,
+          HrCode(error.code()));
+        Cancel();
+        return WindowSnapshotStatus::Failed;
+    }
+}
+
+void WindowSnapshotCapture::Cancel() noexcept {
+    try {
+        if (m_impl->framePool) {
+            if (m_impl->frameArrivedToken.value != 0) {
+                m_impl->framePool.FrameArrived(m_impl->frameArrivedToken);
+            }
+            if (m_impl->session) {
+                m_impl->session.Close();
+            }
+            m_impl->framePool.Close();
+        }
+    } catch (const winrt::hresult_error& error) {
+        LOG_WARN("window_snapshot: capture cleanup failed hr=0x{:08X}", HrCode(error.code()));
+    }
+
+    m_impl->phase = Impl::Phase::Idle;
+    m_impl->target = nullptr;
+    m_impl->device.Reset();
+    m_impl->context.Reset();
+    m_impl->dxgiDevice.Reset();
+    m_impl->captureDevice = nullptr;
+    m_impl->item = nullptr;
+    m_impl->framePool = nullptr;
+    m_impl->session = nullptr;
+    m_impl->frameArrivedToken = {};
+    m_impl->frameSignal.reset();
+    m_impl->deadline = {};
 }
 
 } // namespace hw::thumbnail

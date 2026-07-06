@@ -7,19 +7,19 @@
 namespace hw {
 namespace {
 
-const char* PlacementKindName(PlacementKind kind) noexcept {
-    switch (kind) {
-        case PlacementKind::Park:
-            return "park";
-        case PlacementKind::Live:
-            return "live";
-        case PlacementKind::Commit:
-            return "commit";
-        case PlacementKind::Restore:
-            return "restore";
+    const char* PlacementKindName(PlacementKind kind) noexcept {
+        switch (kind) {
+            case PlacementKind::Park:
+                return "park";
+            case PlacementKind::Live:
+                return "live";
+            case PlacementKind::Commit:
+                return "commit";
+            case PlacementKind::Restore:
+                return "restore";
+        }
+        return "unknown";
     }
-    return "unknown";
-}
 
 } // namespace
 
@@ -65,50 +65,20 @@ void OverlayService::DrainPlacementResults(
         }
 
         if (result.kind != PlacementKind::Live) {
-            LOG_DEBUG("interaction: id={} placement completed kind={} success={} error={}",
+            LOG_DEBUG("interaction: id={} placement completed kind={}",
               result.interactionId,
-              PlacementKindName(result.kind),
-              result.success,
-              result.error);
-        }
-        if (result.kind == PlacementKind::Park) {
-            LOG_DEBUG("interaction: id={} park placement target={:p} requested_raw_rect={} actual_available={} actual_raw_rect={}",
-              result.interactionId,
-              reinterpret_cast<void*>(result.target),
-              result.rawRect,
-              result.actualRawRectAvailable,
-              result.actualRawRect);
+              PlacementKindName(result.kind));
         }
 
         switch (result.kind) {
             case PlacementKind::Park:
-                if (!result.success && !preview.finishing) {
-                    renderer.ClearSnapshot();
-                    preview.parkSubmitted = false;
-                }
-                break;
             case PlacementKind::Live:
                 break;
             case PlacementKind::Commit:
-                if (!result.success) {
-                    EnsurePlacementWorker().Submit(PlacementRequest{
-                      .interactionId = result.interactionId,
-                      .kind = PlacementKind::Restore,
-                      .target = session::Target(active),
-                      .rawRect = session::OriginalRawRect(active),
-                    });
-                    break;
-                }
-                renderer.ClearSnapshot();
-                active = std::monostate{};
-                preview.Reset();
-                session::SetCursor(active);
+                CompleteInteraction(renderer, active, preview);
                 break;
             case PlacementKind::Restore:
-                renderer.ClearSnapshot();
-                active = std::monostate{};
-                preview.Reset();
-                session::SetCursor(active);
+                CompleteInteraction(renderer, active, preview);
                 break;
         }
     }
@@ -130,7 +100,17 @@ void OverlayService::RestoreBeforeTeardown(const OverlayActiveSession& active, P
     PlacementResult ignored;
     while (m_placementResults.pop(ignored)) {
     }
+}
+
+void OverlayService::CompleteInteraction(
+  OverlayRenderer& renderer,
+  OverlayActiveSession& active,
+  PreviewState& preview) noexcept {
+    renderer.ClearSnapshot();
+    active = std::monostate{};
     preview.Reset();
+    session::SetCursor(active);
+    m_interactionReserved.store(false, std::memory_order_release);
 }
 
 } // namespace hw
