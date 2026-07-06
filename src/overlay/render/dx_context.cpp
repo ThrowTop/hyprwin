@@ -1,7 +1,8 @@
-#include "overlay/dx_context.hpp"
+#include "overlay/render/dx_context.hpp"
 #include "log/log.hpp"
 #include "util/debug.hpp"
 
+#include <d3d11_4.h>
 #include <dwmapi.h>
 
 namespace hw {
@@ -13,6 +14,7 @@ namespace {
 
 bool DxContext::Create(HWND hwndIn) noexcept {
     hwnd = hwndIn;
+    Microsoft::WRL::ComPtr<ID3D11Multithread> multithread;
 
     const D3D_FEATURE_LEVEL featureLevels[] = {
       D3D_FEATURE_LEVEL_11_1,
@@ -21,7 +23,7 @@ bool DxContext::Create(HWND hwndIn) noexcept {
       D3D_FEATURE_LEVEL_10_0,
     };
 
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED;
+    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifndef HYPRWIN_RELEASE
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
@@ -31,6 +33,13 @@ bool DxContext::Create(HWND hwndIn) noexcept {
         LOG_ERROR("dx: D3D11CreateDevice failed hr=0x{:08X}", HrCode(hr));
         goto fail;
     }
+
+    hr = context.As(&multithread);
+    if (FAILED(hr)) {
+        LOG_ERROR("dx: query ID3D11Multithread failed hr=0x{:08X}", HrCode(hr));
+        goto fail;
+    }
+    multithread->SetMultithreadProtected(TRUE);
 
     hr = device.As(&dxgiDevice);
     if (FAILED(hr)) {

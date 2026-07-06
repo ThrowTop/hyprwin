@@ -35,6 +35,12 @@ enum class ResizeCorner {
     BottomRight,
 };
 
+enum class OverlayPreview {
+    Overlay,
+    Live,
+    Thumbnail,
+};
+
 enum class GrabFilterAction {
     Include,
     Exclude,
@@ -72,6 +78,9 @@ struct Settings {
     float outer_alpha = 0.5f;
     float glow_falloff = 0.15f;
 
+    OverlayPreview move_preview = OverlayPreview::Overlay;
+    OverlayPreview resize_preview = OverlayPreview::Overlay;
+    std::uint32_t live_preview_rate = 60;
     ResizeCorner resize_corner = ResizeCorner::Closest;
     std::vector<GrabFilterRule> grab_filters;
     DebugSettings debug{};

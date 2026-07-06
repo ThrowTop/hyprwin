@@ -6,7 +6,7 @@
 #include "lua/binds/key_event.hpp"
 #include "lua/binds/key_parse.hpp"
 #include "lua/util/stack.hpp"
-#include "shader/compiler.hpp"
+#include "overlay/outline/compiler.hpp"
 #include "util/strings.hpp"
 #include "win/native.hpp"
 
@@ -260,7 +260,7 @@ namespace {
     }
 
     int hwDebugShaderCompilerStatus(lua_State* state) {
-        const auto status = hw::shader::Compiler::CheckAvailability();
+        const auto status = hw::outline::Compiler::CheckAvailability();
         lua_createtable(state, 0, 2);
         lua_pushboolean(state, status.available);
         lua_setfield(state, -2, "available");

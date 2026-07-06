@@ -107,6 +107,7 @@ target_link_libraries(hyprwin PRIVATE
     propsys
     comctl32
     uxtheme
+    windowsapp
 )
 
 target_compile_definitions(hyprwin PRIVATE

@@ -3,89 +3,15 @@
 #include "log/log.hpp"
 #include "overlay/bounds.hpp"
 #include "overlay/overlay_window.hpp"
-#include "overlay/renderer.hpp"
+#include "overlay/render/renderer.hpp"
+#include "overlay/session.hpp"
 #include "util/thread_priority.hpp"
+#include "win/native.hpp"
+
+#include <algorithm>
 
 namespace hw {
 namespace {
-    bool IsActive(const OverlayActiveSession& active) noexcept {
-        return !std::holds_alternative<std::monostate>(active);
-    }
-
-    vec::i4 InitialBounds(const DragSession& session, const BeginDrag& cmd) noexcept {
-        if (cmd.initialBounds.x2 != cmd.initialBounds.x || cmd.initialBounds.y2 != cmd.initialBounds.y) {
-            return cmd.initialBounds;
-        }
-
-        return vec::i4{0, 0, session.windowSize.x, session.windowSize.y};
-    }
-
-    vec::i4 ComputeBounds(const OverlayActiveSession& active, POINT cursor) noexcept {
-        const vec::i2 cur{cursor.x, cursor.y};
-        if (const auto* drag = std::get_if<DragSession>(&active)) {
-            return ComputeDragBounds(cur, *drag);
-        }
-
-        if (const auto* resize = std::get_if<ResizeSession>(&active)) {
-            return ComputeResizeBounds(cur, *resize);
-        }
-
-        return vec::i4{};
-    }
-
-    vec::i4 VisualOffset(const OverlayActiveSession& active) noexcept {
-        if (const auto* drag = std::get_if<DragSession>(&active)) {
-            return drag->visualOffset;
-        }
-
-        if (const auto* resize = std::get_if<ResizeSession>(&active)) {
-            return resize->visualOffset;
-        }
-
-        return vec::i4{};
-    }
-
-    float DpiScale(const OverlayActiveSession& active) noexcept {
-        if (const auto* drag = std::get_if<DragSession>(&active)) {
-            return drag->dpiScale;
-        }
-
-        if (const auto* resize = std::get_if<ResizeSession>(&active)) {
-            return resize->dpiScale;
-        }
-
-        return 1.0f;
-    }
-
-    void SetOverlayCursor(const OverlayActiveSession& active) noexcept {
-        static HCURSOR move = LoadCursorW(nullptr, IDC_SIZEALL);
-        static HCURSOR resizeNwse = LoadCursorW(nullptr, IDC_SIZENWSE);
-        static HCURSOR resizeNesw = LoadCursorW(nullptr, IDC_SIZENESW);
-        static HCURSOR arrow = LoadCursorW(nullptr, IDC_ARROW);
-
-        if (std::holds_alternative<DragSession>(active)) {
-            SetCursor(move);
-            return;
-        }
-
-        if (const auto* resize = std::get_if<ResizeSession>(&active)) {
-            switch (resize->corner) {
-                case ResizeCorner::TopLeft:
-                case ResizeCorner::BottomRight:
-                    SetCursor(resizeNwse);
-                    return;
-                case ResizeCorner::TopRight:
-                case ResizeCorner::BottomLeft:
-                    SetCursor(resizeNesw);
-                    return;
-                case ResizeCorner::Closest:
-                    break;
-            }
-        }
-
-        SetCursor(arrow);
-    }
-
     bool RecoverRenderer(OverlayRenderer& renderer, RenderStatus status) noexcept {
         switch (status) {
             case RenderStatus::Ok:
@@ -113,12 +39,13 @@ OverlayService::OverlayService(HINSTANCE instance, std::atomic<POINT>* latestMou
     : m_instance(instance)
     , m_latestMousePos(latestMousePos)
     , m_settings(settings)
-    , m_shaderManager([this](OverlayCmd cmd) { PublishShaderCommand(std::move(cmd)); }) {}
+    , m_outlineManager([this](outline::Update update) { PublishOutlineUpdate(std::move(update)); }) {}
 
 OverlayService::~OverlayService() {
     if (m_thread.joinable()) {
         m_thread.request_stop();
         m_cv.notify_one();
+        m_thread.join();
     }
 }
 
@@ -137,8 +64,19 @@ void OverlayService::Start() {
 }
 
 bool OverlayService::Send(const OverlayCmd& cmd) noexcept {
+    const bool beginsInteraction = std::holds_alternative<BeginDrag>(cmd) || std::holds_alternative<BeginResize>(cmd);
+    if (beginsInteraction) {
+        bool expected = false;
+        if (!m_interactionReserved.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return false;
+        }
+    }
+
     if (!m_commands.push(cmd)) {
-        LOG_WARN("Overlay command queue full; dropping command");
+        if (beginsInteraction) {
+            m_interactionReserved.store(false, std::memory_order_release);
+        }
+        LOG_ERROR("Overlay command queue full; dropping command");
         return false;
     }
 
@@ -151,16 +89,12 @@ void OverlayService::MarkSettingsDirty() noexcept {
     m_cv.notify_one();
 }
 
-void OverlayService::PublishShaderCommand(OverlayCmd cmd) noexcept {
+void OverlayService::PublishOutlineUpdate(outline::Update update) noexcept {
     {
         std::lock_guard lock(m_mutex);
-        m_pendingShaderCommand = std::move(cmd);
+        m_pendingOutlineCommand = std::visit([](auto&& value) -> OverlayCmd { return std::forward<decltype(value)>(value); }, std::move(update));
     }
     m_cv.notify_one();
-}
-
-vec::i4 OverlayService::GetLatestBounds() const noexcept {
-    return m_latestBounds.Load();
 }
 
 void OverlayService::OverlayLoop(std::stop_token token) noexcept {
@@ -178,20 +112,22 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
     }
 
     SettingsPtr settingsSnapshot = LoadSettingsSnapshot(m_settings, DefaultSettings());
-    m_shaderManager.ApplySettings(*settingsSnapshot);
+    m_outlineManager.ApplySettings(*settingsSnapshot);
     if (!RecoverRenderer(renderer, renderer.Render(window.Bounds(), *settingsSnapshot, SessionType::None, 1.0f))) {
         LOG_CRITICAL("Failed to prime overlay renderer");
         return;
     }
 
     OverlayActiveSession active;
-    bool shutdown = false;
-    bool resetDevice = false;
+    PreviewState preview;
 
-    while (!token.stop_requested() && !shutdown) {
-        if (!IsActive(active)) {
+    while (!token.stop_requested()) {
+        if (!session::IsActive(active)) {
             std::unique_lock lock(m_mutex);
-            m_cv.wait(lock, [&] { return token.stop_requested() || !m_commands.empty() || m_pendingShaderCommand.has_value() || m_settingsDirty.load(std::memory_order_relaxed); });
+            m_cv.wait(lock, [&] {
+                return token.stop_requested() || !m_commands.empty() || !m_placementResults.empty() || m_pendingOutlineCommand.has_value() ||
+                       m_settingsDirty.load(std::memory_order_relaxed);
+            });
             lock.unlock();
 
             if (token.stop_requested()) {
@@ -203,35 +139,23 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
                 HandleDisplayChange(window, renderer);
             }
 
-            DrainCommands(renderer, active, settingsSnapshot, shutdown, resetDevice);
-            if (resetDevice) {
-                if (!renderer.ResetDevice()) {
-                    active = std::monostate{};
-                }
-                resetDevice = false;
-            }
+            DrainPlacementResults(renderer, active, preview);
+            DrainCommands(renderer, active, settingsSnapshot, preview);
+            RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
 
-            if (!IsActive(active)) {
+            if (!session::IsActive(active)) {
                 continue;
             }
 
             window.UpdateVirtualDesktop();
             renderer.UpdateCanvas(window.Bounds());
-            RenderStatus clearStatus = renderer.ClearForShow();
+            const RenderStatus clearStatus = renderer.ClearForShow();
             if (clearStatus != RenderStatus::Ok) {
                 LOG_ERROR("overlay_service: ClearForShow failed status={}", RenderStatusName(clearStatus));
-                if (!RecoverRenderer(renderer, clearStatus)) {
-                    LOG_ERROR("overlay_service: ClearForShow recovery failed status={}", RenderStatusName(clearStatus));
-                    active = std::monostate{};
-                    continue;
-                }
-
-                clearStatus = renderer.ClearForShow();
-                if (clearStatus != RenderStatus::Ok) {
-                    LOG_ERROR("overlay_service: ClearForShow failed after recovery status={}", RenderStatusName(clearStatus));
-                    active = std::monostate{};
-                    continue;
-                }
+                RecoverRenderer(renderer, clearStatus);
+                RestoreBeforeTeardown(active, preview);
+                CompleteInteraction(renderer, active, preview);
+                continue;
             }
             window.Show();
         }
@@ -240,107 +164,96 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         if (window.ConsumeDisplayChanged()) {
             HandleDisplayChange(window, renderer);
         }
-        DrainCommands(renderer, active, settingsSnapshot, shutdown, resetDevice);
-        if (resetDevice) {
-            if (!renderer.ResetDevice()) {
-                active = std::monostate{};
-            } else {
-                window.ForceVirtualDesktopReapply();
-            }
-            resetDevice = false;
-        }
+        DrainPlacementResults(renderer, active, preview);
+        DrainCommands(renderer, active, settingsSnapshot, preview);
+        RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
 
-        if (shutdown || token.stop_requested()) {
+        if (token.stop_requested()) {
             break;
         }
 
-        if (!IsActive(active)) {
+        if (!session::IsActive(active)) {
             window.Hide();
             continue;
         }
 
         const POINT cursor = m_latestMousePos ? m_latestMousePos->load(std::memory_order_relaxed) : POINT{};
-        const vec::i4 logicalBounds = ComputeBounds(active, cursor);
-        m_latestBounds.Store(logicalBounds);
+        const vec::i4 logicalBounds = (preview.parkPending || preview.finishing) ? m_latestBounds : session::ComputeBounds(active, cursor);
+        m_latestBounds = logicalBounds;
 
-        const vec::i4 visualBounds = ApplyVisualOffset(logicalBounds, VisualOffset(active));
-
+        const vec::i4 visualBounds = ApplyVisualOffset(logicalBounds, session::VisualOffset(active));
         const SessionType sessionType = GetSessionType(active);
-        const RenderStatus renderStatus = renderer.Render(visualBounds, *settingsSnapshot, sessionType, DpiScale(active));
+        const RenderStatus renderStatus = renderer.Render(visualBounds, *settingsSnapshot, sessionType, session::DpiScale(active));
         if (renderStatus != RenderStatus::Ok) {
             LOG_ERROR("overlay_service: Render failed status={}", RenderStatusName(renderStatus));
-            if (!RecoverRenderer(renderer, renderStatus)) {
-                active = std::monostate{};
+            RecoverRenderer(renderer, renderStatus);
+            RestoreBeforeTeardown(active, preview);
+            CompleteInteraction(renderer, active, preview);
+        } else if (preview.capturePending) {
+            preview.capturePending = false;
+            LOG_DEBUG("interaction: id={} first outline presented; snapshot capture starting", session::Id(active));
+            const thumbnail::WindowSnapshotStatus status = renderer.BeginSnapshotCapture(session::Target(active));
+            preview.captureInProgress = status == thumbnail::WindowSnapshotStatus::Pending;
+            preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
+            if (status == thumbnail::WindowSnapshotStatus::Failed) {
+                LOG_DEBUG("interaction: id={} snapshot capture unavailable; continuing overlay-only", session::Id(active));
+            }
+        } else if (preview.captureInProgress) {
+            const thumbnail::WindowSnapshotStatus status = renderer.UpdateSnapshotCapture();
+            if (status != thumbnail::WindowSnapshotStatus::Pending) {
+                preview.captureInProgress = false;
+                preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
+                LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), status == thumbnail::WindowSnapshotStatus::Ready);
+            }
+        } else if (preview.parkPending) {
+            const InteractionId interactionId = session::Id(active);
+            LOG_DEBUG("interaction: id={} first thumbnail frame presented; queuing park", interactionId);
+            const vec::i4 originalRawRect = session::OriginalRawRect(active);
+            const vec::i4 virtualBounds = win::GetVirtualScreenBounds();
+            const vec::i4 parkedRawRect{
+              virtualBounds.x2 + 64,
+              virtualBounds.y,
+              virtualBounds.x2 + 64 + originalRawRect.Width(),
+              virtualBounds.y + originalRawRect.Height(),
+            };
+            LOG_DEBUG("interaction: id={} park submitting target={:p} virtual_bounds={} requested_raw_rect={}",
+              interactionId,
+              reinterpret_cast<void*>(session::Target(active)),
+              virtualBounds,
+              parkedRawRect);
+            EnsurePlacementWorker().Submit(PlacementRequest{
+              .interactionId = interactionId,
+              .kind = PlacementKind::Park,
+              .target = session::Target(active),
+              .rawRect = parkedRawRect,
+            });
+            preview.parkSubmitted = true;
+            preview.parkPending = false;
+        } else if (preview.mode == OverlayPreview::Live && !preview.finishing) {
+            const auto now = std::chrono::steady_clock::now();
+            const vec::i4 comparisonRawRect = preview.livePlacementSubmitted ? preview.lastLiveRawRect : session::OriginalRawRect(active);
+            const bool rateReady = preview.liveRate == 0 || now >= preview.nextLivePlacement;
+            if (rateReady && logicalBounds != comparisonRawRect) {
+                EnsurePlacementWorker().Submit(PlacementRequest{
+                  .interactionId = session::Id(active),
+                  .kind = PlacementKind::Live,
+                  .target = session::Target(active),
+                  .rawRect = logicalBounds,
+                });
+                preview.livePlacementSubmitted = true;
+                preview.lastLiveRawRect = logicalBounds;
+                if (preview.liveRate != 0) {
+                    const std::uint64_t intervalNs = std::max<std::uint64_t>(1, 1'000'000'000ULL / preview.liveRate);
+                    preview.nextLivePlacement = now + std::chrono::nanoseconds{intervalNs};
+                }
             }
         }
     }
 
+    RestoreBeforeTeardown(active, preview);
+    CompleteInteraction(renderer, active, preview);
     window.Hide();
     renderer.Destroy();
     window.Destroy();
 }
-
-void OverlayService::DrainCommands(OverlayRenderer& renderer, OverlayActiveSession& active, SettingsPtr& settingsSnapshot, bool& shutdown, bool& resetDevice) noexcept {
-    if (m_settingsDirty.exchange(false, std::memory_order_acq_rel)) {
-        settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
-        m_shaderManager.ApplySettings(*settingsSnapshot);
-    }
-
-    std::optional<OverlayCmd> shaderCommand;
-    {
-        std::lock_guard lock(m_mutex);
-        shaderCommand = std::move(m_pendingShaderCommand);
-        m_pendingShaderCommand.reset();
-    }
-    if (shaderCommand) {
-        ApplyCommand(renderer, *shaderCommand, active, settingsSnapshot, shutdown, resetDevice);
-        if (shutdown) {
-            return;
-        }
-    }
-
-    OverlayCmd cmd;
-    while (m_commands.pop(cmd)) {
-        ApplyCommand(renderer, cmd, active, settingsSnapshot, shutdown, resetDevice);
-        if (shutdown) {
-            return;
-        }
-    }
-}
-
-void OverlayService::ApplyCommand(
-  OverlayRenderer& renderer, const OverlayCmd& cmd, OverlayActiveSession& active, SettingsPtr& settingsSnapshot, bool& shutdown, bool& resetDevice) noexcept {
-    std::visit(
-      [&](const auto& value) noexcept {
-          using T = std::decay_t<decltype(value)>;
-          if constexpr (std::is_same_v<T, Hide>) {
-              active = std::monostate{};
-              SetOverlayCursor(active);
-          } else if constexpr (std::is_same_v<T, ResetDevice>) {
-              resetDevice = true;
-          } else if constexpr (std::is_same_v<T, Shutdown>) {
-              active = std::monostate{};
-              SetOverlayCursor(active);
-              shutdown = true;
-          } else if constexpr (std::is_same_v<T, UseBuiltInShader>) {
-              renderer.UseBuiltInShader(value.generation);
-          } else if constexpr (std::is_same_v<T, InstallPixelShader>) {
-              renderer.InstallPixelShader(value.bytecode, value.generation);
-          } else if constexpr (std::is_same_v<T, BeginDrag>) {
-              settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
-              renderer.ResetSessionAnimation();
-              active = value.session;
-              m_latestBounds.Store(InitialBounds(value.session, value));
-              SetOverlayCursor(active);
-          } else if constexpr (std::is_same_v<T, BeginResize>) {
-              settingsSnapshot = LoadSettingsSnapshot(m_settings, settingsSnapshot);
-              renderer.ResetSessionAnimation();
-              active = value.session;
-              m_latestBounds.Store(value.session.startRect);
-              SetOverlayCursor(active);
-          }
-      },
-      cmd);
-}
-
 } // namespace hw

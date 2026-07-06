@@ -5,14 +5,19 @@
 #include <variant>
 
 #include "config/settings.hpp"
-#include "shader/types.hpp"
+#include "overlay/outline/types.hpp"
 #include "util/geometry.hpp"
 
 namespace hw {
 
+using InteractionId = std::uint64_t;
+
 enum class SessionType { None, Drag, Resize };
 
 struct DragSession {
+    InteractionId interactionId = 0;
+    HWND target = nullptr;
+    vec::i4 originalRawRect{};
     vec::i2 anchor{};
     vec::i2 windowSize{};
     vec::i4 visualOffset{};
@@ -20,6 +25,9 @@ struct DragSession {
 };
 
 struct ResizeSession {
+    InteractionId interactionId = 0;
+    HWND target = nullptr;
+    vec::i4 originalRawRect{};
     vec::i2 startCursor{};
     vec::i4 startRect{};
     ResizeCorner corner = ResizeCorner::BottomRight;
@@ -29,16 +37,14 @@ struct ResizeSession {
     float dpiScale = 1.0f;
 };
 
-struct Hide {};
-struct ResetDevice {};
-struct Shutdown {};
-struct UseBuiltInShader {
-    std::uint64_t generation = 0;
+struct CommitInteraction {
+    InteractionId interactionId = 0;
 };
-struct InstallPixelShader {
-    std::shared_ptr<const shader::Bytecode> bytecode;
-    std::uint64_t generation = 0;
+struct CancelInteraction {
+    InteractionId interactionId = 0;
 };
+using UseBuiltInShader = outline::UseBuiltInShader;
+using InstallPixelShader = outline::InstallPixelShader;
 
 struct BeginDrag {
     DragSession session{};
@@ -49,7 +55,7 @@ struct BeginResize {
     ResizeSession session{};
 };
 
-using OverlayCmd = std::variant<Hide, ResetDevice, Shutdown, UseBuiltInShader, InstallPixelShader, BeginDrag, BeginResize>;
+using OverlayCmd = std::variant<CommitInteraction, CancelInteraction, UseBuiltInShader, InstallPixelShader, BeginDrag, BeginResize>;
 
 using OverlayActiveSession = std::variant<std::monostate, DragSession, ResizeSession>;
 

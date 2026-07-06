@@ -2,9 +2,9 @@
 
 #include <string>
 
-#include "shader/types.hpp"
+#include "overlay/outline/types.hpp"
 
-namespace hw::shader::cache {
+namespace hw::outline::cache {
 
 struct LookupResult {
     bool hit = false;
@@ -15,4 +15,4 @@ struct LookupResult {
 [[nodiscard]] LookupResult Load(const CompileRequest& request);
 void Store(const CompileRequest& request, const Bytecode& bytecode);
 
-} // namespace hw::shader::cache
+} // namespace hw::outline::cache

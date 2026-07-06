@@ -8,14 +8,13 @@
 #include <thread>
 
 #include "config/settings.hpp"
-#include "overlay/cmd.hpp"
-#include "shader/compiler.hpp"
+#include "overlay/outline/compiler.hpp"
 
-namespace hw::shader {
+namespace hw::outline {
 
 class Manager {
   public:
-    using PublishFn = std::function<void(OverlayCmd)>;
+    using PublishFn = std::function<void(Update)>;
 
     explicit Manager(PublishFn publish);
     Manager(const Manager&) = delete;
@@ -41,4 +40,4 @@ class Manager {
     std::jthread m_worker;
 };
 
-} // namespace hw::shader
+} // namespace hw::outline

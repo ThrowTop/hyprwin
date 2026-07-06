@@ -57,7 +57,7 @@ class Mouse {
     std::mutex m_dispatchMutex;
     util::SpscQueue<WPARAM, 16> m_buttonQueue{};
     std::atomic_bool m_queueOverflowed{false};
-    std::atomic_bool m_cancelRequested{false};
+    std::atomic_bool m_finishRequested{false};
 
     std::atomic<POINT> m_lastDownPt{};
     std::atomic_bool m_allowLeftUpPassthrough{false};
@@ -65,6 +65,8 @@ class Mouse {
 
     HWND m_target = nullptr;
     SessionType m_sessionType = SessionType::None;
+    InteractionId m_interactionId = 0;
+    InteractionId m_nextInteractionId = 1;
 };
 
 } // namespace hw

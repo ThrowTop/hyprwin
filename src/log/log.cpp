@@ -16,7 +16,6 @@
 
 namespace logging {
 namespace {
-
 #ifndef NDEBUG
     thread_local std::string t_thread_name;
 #endif
@@ -277,7 +276,6 @@ namespace {
         std::uint64_t m_sequence = 0;
         detail::LogViewer m_viewer;
     };
-
 } // namespace
 
 std::string make_run_log_file_path(std::string_view prefix, std::size_t keep_files) {
@@ -369,18 +367,12 @@ namespace detail {
 #ifndef NDEBUG
 namespace detail {
     void set_os_thread_name(std::string_view name) noexcept {
-        using SetThreadDescriptionFn = HRESULT(WINAPI*)(HANDLE, PCWSTR);
-        static const auto set_thread_description = reinterpret_cast<SetThreadDescriptionFn>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadDescription"));
-        if (!set_thread_description) {
-            return;
-        }
-
         std::wstring wide_name;
         wide_name.reserve(name.size());
         for (const char c : name) {
             wide_name.push_back(static_cast<unsigned char>(c));
         }
-        (void)set_thread_description(GetCurrentThread(), wide_name.c_str());
+        SetThreadDescription(GetCurrentThread(), wide_name.c_str());
     }
 } // namespace detail
 
@@ -394,5 +386,4 @@ std::string_view get_thread_name() noexcept {
     return t_thread_name;
 }
 #endif
-
 } // namespace logging

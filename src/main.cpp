@@ -8,6 +8,7 @@
 #include "tray/tray.hpp"
 #include "util/debug.hpp"
 #include "win/native.hpp"
+#include "version.hpp"
 
 #include <atomic>
 #include <cstdlib>
@@ -20,6 +21,11 @@
 namespace {
 constexpr int kExitAlreadyRunning = 2;
 constexpr wchar_t kAppId[] = L"hyprwin.throwtop.dev";
+#ifdef NDEBUG
+constexpr char kBuildType[] = "release";
+#else
+constexpr char kBuildType[] = "debug";
+#endif
 
 struct AppState {
     hw::AtomicSettingsPtr settings;
@@ -37,7 +43,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     const int r = hyprwin_main();
     perf::DumpSummary();
 #ifndef HYPRWIN_RELEASE
-    hw::debug::ReportDxLiveObjects();
+    if (r == EXIT_SUCCESS) {
+        hw::debug::ReportDxLiveObjects();
+    }
 #endif
     logging::shutdown();
     return r;
@@ -45,7 +53,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 int hyprwin_main() {
     SET_THREAD_NAME("MAIN");
-    LOG_INFO("hyprwin starting");
+    LOG_INFO("hyprwin starting version={} build={} arch=x64 pid={} perf={}",
+      HYPRWIN_VERSION,
+      kBuildType,
+      GetCurrentProcessId(),
+      HYPRWIN_ENABLE_PERF != 0);
 
 #ifdef HYPRWIN_RELEASE
     if (!win::EnsureRunAsAdminAndExitIfNot()) {

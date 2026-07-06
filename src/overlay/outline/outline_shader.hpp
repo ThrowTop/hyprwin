@@ -8,10 +8,10 @@
 #include <wrl/client.h>
 
 #include "config/settings.hpp"
-#include "overlay/dx_context.hpp"
-#include "shader/types.hpp"
+#include "overlay/render/dx_context.hpp"
+#include "overlay/outline/types.hpp"
 
-namespace hw {
+namespace hw::outline {
 
 enum class ShaderSession : std::uint32_t {
     None = 0,
@@ -60,7 +60,7 @@ static_assert(offsetof(ShaderRuntimeParams, timeSeconds) == 32);
 static_assert(offsetof(ShaderSettingsParams, outerAlpha) == 16);
 static_assert(offsetof(ShaderSettingsParams, colors) == 32);
 
-struct BorderShader {
+struct Shader {
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader;
     Microsoft::WRL::ComPtr<ID3D11Buffer> constantBuffer;
@@ -69,10 +69,10 @@ struct BorderShader {
 
     [[nodiscard]] bool Create(DxContext& dx) noexcept;
     bool UseBuiltInPixelShader(DxContext& dx) noexcept;
-    [[nodiscard]] bool InstallPixelShader(DxContext& dx, const shader::Bytecode& bytecode) noexcept;
+    [[nodiscard]] bool InstallPixelShader(DxContext& dx, const Bytecode& bytecode) noexcept;
     bool UpdateConstants(DxContext& dx, const ShaderParams& params) noexcept;
     void Bind(DxContext& dx) noexcept;
     void Release() noexcept;
 };
 
-} // namespace hw
+} // namespace hw::outline

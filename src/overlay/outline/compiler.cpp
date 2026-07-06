@@ -1,4 +1,4 @@
-#include "shader/compiler.hpp"
+#include "overlay/outline/compiler.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -15,7 +15,7 @@
 
 #include "util/strings.hpp"
 
-namespace hw::shader {
+namespace hw::outline {
 namespace {
     using Microsoft::WRL::ComPtr;
 
@@ -227,4 +227,4 @@ CompileResult Compiler::Compile(const CompileRequest& request) {
       .generation = request.generation,
     };
 }
-} // namespace hw::shader
+} // namespace hw::outline

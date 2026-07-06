@@ -5,9 +5,10 @@
 #include <windows.h>
 
 #include "config/settings.hpp"
-#include "overlay/border_shader.hpp"
+#include "overlay/outline/outline_shader.hpp"
 #include "overlay/cmd.hpp"
-#include "overlay/dx_context.hpp"
+#include "overlay/render/dx_context.hpp"
+#include "overlay/thumbnail/thumbnail_shader.hpp"
 #include "util/geometry.hpp"
 
 namespace hw {
@@ -45,8 +46,12 @@ class OverlayRenderer {
     void HandleDisplayChange(const vec::i4& bounds) noexcept;
     [[nodiscard]] RenderStatus ClearForShow() noexcept;
     void UseBuiltInShader(std::uint64_t generation) noexcept;
-    void InstallPixelShader(std::shared_ptr<const shader::Bytecode> bytecode, std::uint64_t generation) noexcept;
+    void InstallPixelShader(std::shared_ptr<const outline::Bytecode> bytecode, std::uint64_t generation) noexcept;
     void ResetSessionAnimation() noexcept;
+    [[nodiscard]] thumbnail::WindowSnapshotStatus BeginSnapshotCapture(HWND target) noexcept;
+    [[nodiscard]] thumbnail::WindowSnapshotStatus UpdateSnapshotCapture() noexcept;
+    void CancelSnapshotCapture() noexcept;
+    void ClearSnapshot() noexcept;
 
     [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept;
 
@@ -57,12 +62,13 @@ class OverlayRenderer {
     void ApplySettings(const Settings& settings) noexcept;
     void UpdateGeometry() noexcept;
     void UpdateGradientDirection() noexcept;
-    [[nodiscard]] ShaderParams BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept;
+    [[nodiscard]] outline::ShaderParams BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept;
 
     DxContext m_dx;
-    BorderShader m_shader;
-    std::shared_ptr<const shader::Bytecode> m_customPixelShaderBytecode;
-    std::uint64_t m_shaderGeneration = 0;
+    outline::Shader m_outlineShader;
+    thumbnail::ThumbnailShader m_thumbnailShader;
+    std::shared_ptr<const outline::Bytecode> m_customPixelShaderBytecode;
+    std::uint64_t m_outlineGeneration = 0;
     bool m_pipelineDirty = true;
 
     HWND m_hwnd = nullptr;
@@ -86,6 +92,7 @@ class OverlayRenderer {
     float m_gradientRuntimeAngle = 0.0f;
     float m_gradientDirX = 1.0f;
     float m_gradientDirY = 0.0f;
+    float m_thumbnailCornerRadius = 0.0f;
     long long m_performanceFrequency = 0;
     long long m_animationStartTicks = 0;
     long long m_sessionStartTicks = 0;

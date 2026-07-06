@@ -1,4 +1,4 @@
-#include "shader/cache.hpp"
+#include "overlay/outline/cache.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -16,7 +16,7 @@
 #include "util/strings.hpp"
 #include "win/native.hpp"
 
-namespace hw::shader::cache {
+namespace hw::outline::cache {
 namespace {
 
     constexpr std::uint32_t kCacheVersion = 2;
@@ -217,4 +217,4 @@ void Store(const CompileRequest& request, const Bytecode& bytecode) {
     }
 }
 
-} // namespace hw::shader::cache
+} // namespace hw::outline::cache
