@@ -262,10 +262,8 @@ namespace {
     int hwDebugShaderCompilerStatus(lua_State* state) {
         const auto status = hw::outline::Compiler::CheckAvailability();
         lua_createtable(state, 0, 2);
-        lua_pushboolean(state, status.available);
-        lua_setfield(state, -2, "available");
-        lua_pushlstring(state, status.diagnostics.data(), status.diagnostics.size());
-        lua_setfield(state, -2, "diagnostics");
+        util::setBoolField(state, "available", status.available);
+        util::setStringField(state, "diagnostics", status.diagnostics);
         return 1;
     }
 
@@ -306,7 +304,7 @@ namespace {
 
     int hwLogPath(lua_State* state) {
         const std::string path = logging::file_path();
-        lua_pushlstring(state, path.data(), path.size());
+        util::pushString(state, path);
         return 1;
     }
 
@@ -415,7 +413,7 @@ namespace {
             lua_pushnil(state);
             return 1;
         }
-        lua_pushlstring(state, context->config_path.data(), context->config_path.size());
+        util::pushString(state, context->config_path);
         return 1;
     }
 
@@ -504,8 +502,7 @@ namespace {
         lua_newtable(state);
         util::setFn(state, "__index", hwBuildIndex);
         util::setFn(state, "__newindex", hwBuildNewIndex);
-        lua_pushliteral(state, "locked");
-        lua_setfield(state, -2, "__metatable");
+        util::setStringField(state, "__metatable", "locked");
         lua_setmetatable(state, -2);
         lua_setfield(state, -2, "build");
     }
@@ -539,12 +536,12 @@ void registerApi(lua_State* state) {
     util::setFn(state, "open_config", hwOpenConfig);
     RegisterBuild(state);
 
-    lua_newtable(state);
-    lua_newtable(state);
-    util::setFn(state, "__index", hwDebugIndex);
-    util::setFn(state, "__newindex", hwDebugNewIndex);
-    lua_setmetatable(state, -2);
-    lua_setfield(state, -2, "debug");
+    util::setTableField(state, "debug", [](lua_State* s) {
+        lua_newtable(s);
+        util::setFn(s, "__index", hwDebugIndex);
+        util::setFn(s, "__newindex", hwDebugNewIndex);
+        lua_setmetatable(s, -2);
+    });
 }
 
 } // namespace lua::core

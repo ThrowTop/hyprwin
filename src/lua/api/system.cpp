@@ -30,7 +30,7 @@ namespace {
         }
         buf.resize(actual);
         const std::string utf8 = ::util::WideToUtf8(buf);
-        lua_pushlstring(state, utf8.data(), utf8.size());
+        util::pushString(state, utf8);
         return 1;
     }
 
@@ -42,7 +42,7 @@ namespace {
             return 1;
         }
         const std::string utf8 = ::util::WideToUtf8(std::wstring_view(buf, len > 0 ? len - 1 : 0));
-        lua_pushlstring(state, utf8.data(), utf8.size());
+        util::pushString(state, utf8);
         return 1;
     }
 
@@ -81,22 +81,14 @@ namespace {
         const auto hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(luaL_checkinteger(state, 1)));
         const UINT msg = static_cast<UINT>(luaL_checkinteger(state, 2));
         const auto wp = static_cast<WPARAM>(luaL_optinteger(state, 3, 0));
-        // String LPARAM removed: SendNotifyMessageW returns before the receiver processes
-        // the message on cross-thread targets, so a pointer into a local wstring dangles.
         const LPARAM lp = static_cast<LPARAM>(luaL_optinteger(state, 4, 0));
 
         SendNotifyMessageW(hwnd, msg, wp, lp);
         return 0;
     }
 
-    // ---------------------------------------------------------------
-    // Registry helpers
-    // ---------------------------------------------------------------
-
     // Normalizes / to \ and returns the HKEY root + remaining subkey.
-    // Accepts "HKCU", "HKEY_CURRENT_USER", etc.
     static bool ParseRegKey(std::string_view raw, HKEY& root, std::wstring& subkey) {
-        // Normalize / -> \ in a working copy
         std::string s(raw);
         for (char& c : s) {
             if (c == '/')
@@ -163,7 +155,7 @@ namespace {
             if (!buf.empty() && buf.back() == L'\0')
                 buf.pop_back();
             const std::string utf8 = ::util::WideToUtf8(buf);
-            lua_pushlstring(state, utf8.data(), utf8.size());
+            util::pushString(state, utf8);
         } else if (type == REG_DWORD) {
             DWORD val{};
             bytes = sizeof(val);
@@ -286,17 +278,17 @@ namespace {
 } // namespace
 
 void registerApi(lua_State* state) {
-    lua_newtable(state);
-    util::setFn(state, "lock", Lock);
-    util::setFn(state, "env", Env);
-    util::setFn(state, "username", Username);
-    util::setFn(state, "debug_console", DebugConsole);
-    util::setFn(state, "send_notify_message", SendNotifyMsg);
-    util::setFn(state, "reg_get", RegGet);
-    util::setFn(state, "reg_set", RegSet);
-    util::setFn(state, "reg_exists", RegExists);
-    util::setFn(state, "reg_delete", RegDelete);
-    lua_setfield(state, -2, "sys");
+    util::setTableField(state, "sys", [](lua_State* s) {
+        util::setFn(s, "lock", Lock);
+        util::setFn(s, "env", Env);
+        util::setFn(s, "username", Username);
+        util::setFn(s, "debug_console", DebugConsole);
+        util::setFn(s, "send_notify_message", SendNotifyMsg);
+        util::setFn(s, "reg_get", RegGet);
+        util::setFn(s, "reg_set", RegSet);
+        util::setFn(s, "reg_exists", RegExists);
+        util::setFn(s, "reg_delete", RegDelete);
+    });
 }
 
 } // namespace lua::system

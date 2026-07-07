@@ -84,8 +84,8 @@ hw.bind("Q", function()
 end)
 ```
 
-The full Lua API, shader API, examples, and troubleshooting guides live in the
-HyprWin documentation project.
+The full Lua API, shader API, examples, and troubleshooting guides are on the
+[HyprWin documentation website](https://throwtop.dev/hyprwin-docs/).
 
 ## Previous version
 

@@ -24,6 +24,7 @@ namespace {
     int WindowDump(lua_State* state);
     int WindowFocused(lua_State* state);
     int WindowGetFullscreen(lua_State* state);
+    int WindowHwnd(lua_State* state);
     int WindowList(lua_State* state);
     int WindowPid(lua_State* state);
     int WindowRect(lua_State* state);
@@ -33,8 +34,7 @@ namespace {
 
     void EnsureWindowMetatable(lua_State* state) {
         util::ensureMetatable(state, kWindowMetatable, [](lua_State* s) {
-            lua_pushvalue(s, -1);
-            lua_setfield(s, -2, "__index");
+            util::setSelfIndex(s);
 
             util::setFn(s, "__tostring", WindowToString);
             util::setFn(s, "at_cursor", WindowAtCursor);
@@ -50,6 +50,7 @@ namespace {
             util::setFn(s, "get_maximized", map::Bool<window::check, win::GetMaximized>);
             util::setFn(s, "get_minimized", map::Bool<window::check, win::GetMinimized>);
             util::setFn(s, "get_resizable", map::Bool<window::check, win::GetResizable>);
+            util::setFn(s, "hwnd", WindowHwnd);
             util::setFn(s, "kill", map::Bool<window::check, win::KillWindowProcess>);
             util::setFn(s, "list", WindowList);
             util::setFn(s, "maximize", map::Bool<window::check, win::MaximizeWindow>);
@@ -72,11 +73,11 @@ namespace {
 void registerApi(lua_State* state) {
     EnsureWindowMetatable(state);
 
-    lua_newtable(state);
-    util::setFn(state, "at_cursor", WindowAtCursor);
-    util::setFn(state, "focused", WindowFocused);
-    util::setFn(state, "list", WindowList);
-    lua_setfield(state, -2, "window");
+    util::setTableField(state, "window", [](lua_State* s) {
+        util::setFn(s, "at_cursor", WindowAtCursor);
+        util::setFn(s, "focused", WindowFocused);
+        util::setFn(s, "list", WindowList);
+    });
 }
 
 void push(lua_State* state, HWND hwnd) {
@@ -116,6 +117,11 @@ namespace {
         const HWND hwnd = check(state, 1);
         RECT rawRect{};
         lua_pushboolean(state, win::GetRawWindowRect(hwnd, rawRect) && win::GetBorderlessFullscreen(hwnd, rawRect));
+        return 1;
+    }
+
+    int WindowHwnd(lua_State* state) {
+        lua_pushinteger(state, static_cast<lua_Integer>(reinterpret_cast<std::uintptr_t>(check(state, 1))));
         return 1;
     }
 
@@ -208,15 +214,11 @@ namespace {
         lua_createtable(state, 0, 11);
         lua_pushinteger(state, static_cast<lua_Integer>(reinterpret_cast<std::uintptr_t>(hwnd)));
         lua_setfield(state, -2, "hwnd");
-        lua_pushlstring(state, name.data(), name.size());
-        lua_setfield(state, -2, "process");
-        lua_pushlstring(state, title.data(), title.size());
-        lua_setfield(state, -2, "title");
-        lua_pushlstring(state, cls.data(), cls.size());
-        lua_setfield(state, -2, "class");
+        util::setStringField(state, "process", name);
+        util::setStringField(state, "title", title);
+        util::setStringField(state, "class", cls);
         if (pid != 0) {
-            lua_pushinteger(state, static_cast<lua_Integer>(pid));
-            lua_setfield(state, -2, "pid");
+            util::setIntegerField(state, "pid", static_cast<lua_Integer>(pid));
         }
         if (hasRaw) {
             vec::push(state, ::vec::i4::FromWin32(raw));
@@ -226,14 +228,10 @@ namespace {
             vec::push(state, ::vec::i4::FromWin32(visual));
             lua_setfield(state, -2, "visual_rect");
         }
-        lua_pushboolean(state, win::GetMaximized(hwnd));
-        lua_setfield(state, -2, "maximized");
-        lua_pushboolean(state, win::GetMinimized(hwnd));
-        lua_setfield(state, -2, "minimized");
-        lua_pushboolean(state, fs);
-        lua_setfield(state, -2, "fullscreen");
-        lua_pushboolean(state, win::GetResizable(hwnd));
-        lua_setfield(state, -2, "resizable");
+        util::setBoolField(state, "maximized", win::GetMaximized(hwnd));
+        util::setBoolField(state, "minimized", win::GetMinimized(hwnd));
+        util::setBoolField(state, "fullscreen", fs);
+        util::setBoolField(state, "resizable", win::GetResizable(hwnd));
 
         return 1;
     }

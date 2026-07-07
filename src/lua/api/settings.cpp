@@ -121,7 +121,7 @@ namespace {
         }
 
         const std::string utf8 = ::util::WideToUtf8(path);
-        lua_pushlstring(state, utf8.data(), utf8.size());
+        util::pushString(state, utf8);
     }
 
     std::optional<std::wstring> ReadShaderPath(lua_State* state, int idx) {
@@ -245,17 +245,14 @@ namespace {
         for (std::size_t i = 0; i < rules.size(); ++i) {
             const hw::GrabFilterRule& rule = rules[i];
             lua_createtable(state, 0, 3);
-            lua_pushstring(state, rule.action == hw::GrabFilterAction::Include ? "include" : "exclude");
-            lua_setfield(state, -2, "action");
+            util::setStringField(state, "action", rule.action == hw::GrabFilterAction::Include ? "include" : "exclude");
             if (!rule.process.empty()) {
                 const std::string process = ::util::WideToUtf8(rule.process);
-                lua_pushlstring(state, process.data(), process.size());
-                lua_setfield(state, -2, "process");
+                util::setStringField(state, "process", process);
             }
             if (!rule.window_class.empty()) {
                 const std::string windowClass = ::util::WideToUtf8(rule.window_class);
-                lua_pushlstring(state, windowClass.data(), windowClass.size());
-                lua_setfield(state, -2, "class");
+                util::setStringField(state, "class", windowClass);
             }
             lua_rawseti(state, -2, static_cast<int>(i + 1));
         }

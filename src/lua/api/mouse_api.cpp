@@ -7,7 +7,6 @@
 
 namespace lua::mouse_api {
 namespace {
-
     static DWORD BtnDown(std::string_view btn) noexcept {
         if (btn == "left")
             return MOUSEEVENTF_LEFTDOWN;
@@ -37,35 +36,30 @@ namespace {
         ay = static_cast<LONG>(std::clamp(static_cast<long long>(y - vs.y) * 65535 / (vh > 1 ? vh - 1 : 1), 0LL, 65535LL));
     }
 
-} // namespace
-
-void registerApi(lua_State* state) {
-    lua_newtable(state);
-
-    util::setFn(state, "pos", [](lua_State* s) -> int {
+    int MousePos(lua_State* state) {
         POINT pt{};
         GetCursorPos(&pt);
-        vec::push(s, ::vec::i2{static_cast<int>(pt.x), static_cast<int>(pt.y)});
+        vec::push(state, ::vec::i2{static_cast<int>(pt.x), static_cast<int>(pt.y)});
         return 1;
-    });
+    }
 
-    util::setFn(state, "move", [](lua_State* s) -> int {
-        const auto p = vec::checkPoint(s, 1);
+    int MouseMove(lua_State* state) {
+        const auto p = vec::checkPoint(state, 1);
         SetCursorPos(p.x, p.y);
         return 0;
-    });
+    }
 
-    util::setFn(state, "click", [](lua_State* s) -> int {
-        const char* btn = luaL_checkstring(s, 1);
+    int MouseClick(lua_State* state) {
+        const char* btn = luaL_checkstring(state, 1);
         const DWORD down = BtnDown(btn);
         const DWORD up = BtnUp(btn);
         if (!down) {
-            luaL_error(s, "hw.mouse.click: unknown button '%s'", btn);
+            luaL_error(state, "hw.mouse.click: unknown button '%s'", btn);
             return 0;
         }
 
-        if (!lua_isnoneornil(s, 2)) {
-            const auto p = vec::checkPoint(s, 2);
+        if (!lua_isnoneornil(state, 2)) {
+            const auto p = vec::checkPoint(state, 2);
             LONG ax{}, ay{};
             AbsCoords(static_cast<LONG>(p.x), static_cast<LONG>(p.y), ax, ay);
 
@@ -88,13 +82,13 @@ void registerApi(lua_State* state) {
             SendInput(2, inputs, sizeof(INPUT));
         }
         return 0;
-    });
+    }
 
-    util::setFn(state, "down", [](lua_State* s) -> int {
-        const char* btn = luaL_checkstring(s, 1);
+    int MouseDown(lua_State* state) {
+        const char* btn = luaL_checkstring(state, 1);
         const DWORD flag = BtnDown(btn);
         if (!flag) {
-            luaL_error(s, "hw.mouse.down: unknown button '%s'", btn);
+            luaL_error(state, "hw.mouse.down: unknown button '%s'", btn);
             return 0;
         }
         INPUT in{};
@@ -102,13 +96,13 @@ void registerApi(lua_State* state) {
         in.mi.dwFlags = flag;
         SendInput(1, &in, sizeof(INPUT));
         return 0;
-    });
+    }
 
-    util::setFn(state, "up", [](lua_State* s) -> int {
-        const char* btn = luaL_checkstring(s, 1);
+    int MouseUp(lua_State* state) {
+        const char* btn = luaL_checkstring(state, 1);
         const DWORD flag = BtnUp(btn);
         if (!flag) {
-            luaL_error(s, "hw.mouse.up: unknown button '%s'", btn);
+            luaL_error(state, "hw.mouse.up: unknown button '%s'", btn);
             return 0;
         }
         INPUT in{};
@@ -116,19 +110,28 @@ void registerApi(lua_State* state) {
         in.mi.dwFlags = flag;
         SendInput(1, &in, sizeof(INPUT));
         return 0;
-    });
+    }
 
-    util::setFn(state, "scroll", [](lua_State* s) -> int {
-        const int delta = static_cast<int>(luaL_checkinteger(s, 1));
+    int MouseScroll(lua_State* state) {
+        const int delta = static_cast<int>(luaL_checkinteger(state, 1));
         INPUT in{};
         in.type = INPUT_MOUSE;
         in.mi.dwFlags = MOUSEEVENTF_WHEEL;
         in.mi.mouseData = static_cast<DWORD>(delta * WHEEL_DELTA);
         SendInput(1, &in, sizeof(INPUT));
         return 0;
+    }
+
+} // namespace
+
+void registerApi(lua_State* state) {
+    util::setTableField(state, "mouse", [](lua_State* s) {
+        util::setFn(s, "pos", MousePos);
+        util::setFn(s, "move", MouseMove);
+        util::setFn(s, "click", MouseClick);
+        util::setFn(s, "down", MouseDown);
+        util::setFn(s, "up", MouseUp);
+        util::setFn(s, "scroll", MouseScroll);
     });
-
-    lua_setfield(state, -2, "mouse");
 }
-
 } // namespace lua::mouse_api

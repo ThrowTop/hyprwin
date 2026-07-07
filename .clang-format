@@ -2,6 +2,7 @@
 BasedOnStyle: LLVM
 Language: Cpp
 Standard: Latest
+LineEnding: CRLF
 
 # Core layout
 ColumnLimit: 180

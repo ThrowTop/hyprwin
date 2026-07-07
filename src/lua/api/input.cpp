@@ -10,7 +10,7 @@
 namespace lua::input {
 namespace {
 
-    static std::optional<UINT> ModifierVk(std::string_view tok) noexcept {
+    std::optional<UINT> ModifierVk(std::string_view tok) noexcept {
         if (tok == "SUPER" || tok == "WIN" || tok == "LSUPER" || tok == "LWIN")
             return VK_LWIN;
         if (tok == "RSUPER" || tok == "RWIN")
@@ -30,14 +30,14 @@ namespace {
         return std::nullopt;
     }
 
-    static UINT ResolveVk(std::string_view name) noexcept {
+    UINT ResolveVk(std::string_view name) noexcept {
         const std::string upper = ::util::UpperTrim(name);
         if (const auto mod = ModifierVk(upper))
             return *mod;
         return ::util::ParseVirtualKey(upper);
     }
 
-    static HKL ForegroundHkl() {
+    HKL ForegroundHkl() {
         HWND hwnd = GetForegroundWindow();
         if (!hwnd)
             return nullptr;
@@ -45,7 +45,7 @@ namespace {
         return GetKeyboardLayout(tid);
     }
 
-    static std::string HklToName(HKL hkl) {
+    std::string HklToName(HKL hkl) {
         wchar_t buf[LOCALE_NAME_MAX_LENGTH];
         LCID lcid = MAKELCID(LOWORD(hkl), SORT_DEFAULT);
         if (LCIDToLocaleName(lcid, buf, LOCALE_NAME_MAX_LENGTH, 0) == 0)
@@ -53,7 +53,7 @@ namespace {
         return ::util::WideToUtf8(buf);
     }
 
-    static std::vector<HKL> LoadedLayouts() {
+    std::vector<HKL> LoadedLayouts() {
         int count = GetKeyboardLayoutList(0, nullptr);
         if (count <= 0)
             return {};
@@ -62,7 +62,7 @@ namespace {
         return list;
     }
 
-    static void ActivateForForeground(HKL hkl) {
+    void ActivateForForeground(HKL hkl) {
         HWND hwnd = GetForegroundWindow();
         if (!hwnd)
             return;
@@ -71,14 +71,9 @@ namespace {
         PostMessage(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)hkl);
     }
 
-} // namespace
-
-void registerApi(lua_State* state) {
-    lua_newtable(state);
-
-    util::setFn(state, "send", [](lua_State* s) -> int {
+    int InputSend(lua_State* state) {
         std::size_t len = 0;
-        const char* text = luaL_checklstring(s, 1, &len);
+        const char* text = luaL_checklstring(state, 1, &len);
 
         UINT modifiers[8]{};
         UINT mod_count = 0;
@@ -90,24 +85,24 @@ void registerApi(lua_State* state) {
             const std::string token = ::util::UpperTrim(remaining.substr(0, plus));
 
             if (token.empty()) {
-                luaL_error(s, "hw.input.send: empty token in '%s'", text);
+                luaL_error(state, "hw.input.send: empty token in '%s'", text);
                 return 0;
             }
 
             if (const auto mod = ModifierVk(token)) {
                 if (mod_count >= 8) {
-                    luaL_error(s, "hw.input.send: too many modifiers");
+                    luaL_error(state, "hw.input.send: too many modifiers");
                     return 0;
                 }
                 modifiers[mod_count++] = *mod;
             } else if (const UINT vk = ::util::ParseVirtualKey(token)) {
                 if (key != 0) {
-                    luaL_error(s, "hw.input.send: multiple non-modifier keys in '%s'", text);
+                    luaL_error(state, "hw.input.send: multiple non-modifier keys in '%s'", text);
                     return 0;
                 }
                 key = vk;
             } else {
-                luaL_error(s, "hw.input.send: unknown key '%s'", token.c_str());
+                luaL_error(state, "hw.input.send: unknown key '%s'", token.c_str());
                 return 0;
             }
 
@@ -117,7 +112,7 @@ void registerApi(lua_State* state) {
         }
 
         if (key == 0) {
-            luaL_error(s, "hw.input.send: no main key in '%s'", text);
+            luaL_error(state, "hw.input.send: no main key in '%s'", text);
             return 0;
         }
 
@@ -139,13 +134,13 @@ void registerApi(lua_State* state) {
             inputs[count++].ki.dwFlags = KEYEVENTF_KEYUP;
         }
 
-        lua_pushboolean(s, SendInput(count, inputs, sizeof(INPUT)) == count ? 1 : 0);
+        lua_pushboolean(state, SendInput(count, inputs, sizeof(INPUT)) == count ? 1 : 0);
         return 1;
-    });
+    }
 
-    util::setFn(state, "send_text", [](lua_State* s) -> int {
+    int InputSendText(lua_State* state) {
         std::size_t len = 0;
-        const char* text = luaL_checklstring(s, 1, &len);
+        const char* text = luaL_checklstring(state, 1, &len);
         const std::wstring wide = ::util::Utf8ToWide({text, len});
         if (wide.empty())
             return 0;
@@ -163,35 +158,35 @@ void registerApi(lua_State* state) {
         }
         SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
         return 0;
-    });
+    }
 
-    util::setFn(state, "is_down", [](lua_State* s) -> int {
-        const char* name = luaL_checkstring(s, 1);
+    int InputIsDown(lua_State* state) {
+        const char* name = luaL_checkstring(state, 1);
         const UINT vk = ResolveVk(name);
         if (!vk) {
-            luaL_error(s, "hw.input.is_down: unknown key '%s'", name);
+            luaL_error(state, "hw.input.is_down: unknown key '%s'", name);
             return 0;
         }
-        lua_pushboolean(s, (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0 ? 1 : 0);
+        lua_pushboolean(state, (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0 ? 1 : 0);
         return 1;
-    });
+    }
 
-    util::setFn(state, "get_toggle", [](lua_State* s) -> int {
-        const char* name = luaL_checkstring(s, 1);
+    int InputGetToggle(lua_State* state) {
+        const char* name = luaL_checkstring(state, 1);
         const UINT vk = ResolveVk(name);
         if (!vk) {
-            luaL_error(s, "hw.input.get_toggle: unknown key '%s'", name);
+            luaL_error(state, "hw.input.get_toggle: unknown key '%s'", name);
             return 0;
         }
-        lua_pushboolean(s, (GetKeyState(static_cast<int>(vk)) & 1) != 0 ? 1 : 0);
+        lua_pushboolean(state, (GetKeyState(static_cast<int>(vk)) & 1) != 0 ? 1 : 0);
         return 1;
-    });
+    }
 
-    util::setFn(state, "toggle", [](lua_State* s) -> int {
-        const char* name = luaL_checkstring(s, 1);
+    int InputToggle(lua_State* state) {
+        const char* name = luaL_checkstring(state, 1);
         const UINT vk = ResolveVk(name);
         if (!vk) {
-            luaL_error(s, "hw.input.toggle: unknown key '%s'", name);
+            luaL_error(state, "hw.input.toggle: unknown key '%s'", name);
             return 0;
         }
         INPUT inputs[2]{};
@@ -202,40 +197,40 @@ void registerApi(lua_State* state) {
         inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
         SendInput(2, inputs, sizeof(INPUT));
         return 0;
-    });
+    }
 
-    util::setFn(state, "lang", [](lua_State* s) -> int {
+    int InputLang(lua_State* state) {
         HKL hkl = ForegroundHkl();
         if (!hkl) {
-            lua_pushnil(s);
+            lua_pushnil(state);
             return 1;
         }
         const std::string name = HklToName(hkl);
         if (name.empty()) {
-            lua_pushnil(s);
+            lua_pushnil(state);
             return 1;
         }
-        lua_pushlstring(s, name.c_str(), name.size());
+        util::pushString(state, name);
         return 1;
-    });
+    }
 
-    util::setFn(state, "lang_list", [](lua_State* s) -> int {
+    int InputLangList(lua_State* state) {
         const auto layouts = LoadedLayouts();
-        lua_createtable(s, static_cast<int>(layouts.size()), 0);
+        lua_createtable(state, static_cast<int>(layouts.size()), 0);
         int idx = 1;
         for (HKL hkl : layouts) {
             const std::string name = HklToName(hkl);
             if (name.empty())
                 continue;
-            lua_pushlstring(s, name.c_str(), name.size());
-            lua_rawseti(s, -2, idx++);
+            util::pushString(state, name);
+            lua_rawseti(state, -2, idx++);
         }
         return 1;
-    });
+    }
 
-    util::setFn(state, "set_lang", [](lua_State* s) -> int {
+    int InputSetLang(lua_State* state) {
         std::size_t len = 0;
-        const char* name = luaL_checklstring(s, 1, &len);
+        const char* name = luaL_checklstring(state, 1, &len);
         const std::string_view target{name, len};
         for (HKL hkl : LoadedLayouts()) {
             if (HklToName(hkl) == target) {
@@ -243,11 +238,11 @@ void registerApi(lua_State* state) {
                 return 0;
             }
         }
-        luaL_error(s, "hw.input.set_lang: layout '%s' not found", name);
+        luaL_error(state, "hw.input.set_lang: layout '%s' not found", name);
         return 0;
-    });
+    }
 
-    util::setFn(state, "next_lang", [](lua_State*) -> int {
+    int InputNextLang(lua_State*) {
         const auto layouts = LoadedLayouts();
         if (layouts.empty())
             return 0;
@@ -261,9 +256,22 @@ void registerApi(lua_State* state) {
         }
         ActivateForForeground(layouts[(idx + 1) % static_cast<int>(layouts.size())]);
         return 0;
-    });
+    }
 
-    lua_setfield(state, -2, "input");
+} // namespace
+
+void registerApi(lua_State* state) {
+    util::setTableField(state, "input", [](lua_State* s) {
+        util::setFn(s, "send", InputSend);
+        util::setFn(s, "send_text", InputSendText);
+        util::setFn(s, "is_down", InputIsDown);
+        util::setFn(s, "get_toggle", InputGetToggle);
+        util::setFn(s, "toggle", InputToggle);
+        util::setFn(s, "lang", InputLang);
+        util::setFn(s, "lang_list", InputLangList);
+        util::setFn(s, "set_lang", InputSetLang);
+        util::setFn(s, "next_lang", InputNextLang);
+    });
 }
 
 } // namespace lua::input

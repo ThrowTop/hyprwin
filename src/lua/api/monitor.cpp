@@ -39,12 +39,9 @@ namespace {
         int i = 1;
         for (DWORD idx = 0; EnumDisplaySettingsW(ref->name, idx, &mode) != FALSE; ++idx) {
             lua_createtable(state, 0, 3);
-            lua_pushinteger(state, static_cast<lua_Integer>(mode.dmPelsWidth));
-            lua_setfield(state, -2, "width");
-            lua_pushinteger(state, static_cast<lua_Integer>(mode.dmPelsHeight));
-            lua_setfield(state, -2, "height");
-            lua_pushinteger(state, static_cast<lua_Integer>(mode.dmDisplayFrequency));
-            lua_setfield(state, -2, "hz");
+            util::setIntegerField(state, "width", static_cast<lua_Integer>(mode.dmPelsWidth));
+            util::setIntegerField(state, "height", static_cast<lua_Integer>(mode.dmPelsHeight));
+            util::setIntegerField(state, "hz", static_cast<lua_Integer>(mode.dmDisplayFrequency));
             lua_rawseti(state, -2, i++);
         }
         return 1;
@@ -99,7 +96,7 @@ namespace {
         }
         if (key == "name") {
             const std::string n = ::util::WideToUtf8(ref->name);
-            lua_pushlstring(state, n.data(), n.size());
+            util::pushString(state, n);
             return 1;
         }
 
@@ -200,13 +197,13 @@ namespace {
 void registerApi(lua_State* state) {
     EnsureMonitorMetatable(state);
 
-    lua_newtable(state);
-    util::setFn(state, "primary", MonitorPrimary);
-    util::setFn(state, "list", MonitorList);
-    util::setFn(state, "at", MonitorAt);
-    util::setFn(state, "for_window", MonitorForWindow);
-    util::setFn(state, "work_area", WorkArea);
-    lua_setfield(state, -2, "mon");
+    util::setTableField(state, "mon", [](lua_State* s) {
+        util::setFn(s, "primary", MonitorPrimary);
+        util::setFn(s, "list", MonitorList);
+        util::setFn(s, "at", MonitorAt);
+        util::setFn(s, "for_window", MonitorForWindow);
+        util::setFn(s, "work_area", WorkArea);
+    });
 }
 
 } // namespace lua::monitor

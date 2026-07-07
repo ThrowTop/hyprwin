@@ -19,6 +19,24 @@
 #include <utility>
 
 namespace lua {
+namespace {
+
+    void PrependConfigPackagePath(lua_State* state, const std::wstring& config_path) {
+        const auto config_dir = std::filesystem::path{config_path}.parent_path();
+        if (config_dir.empty()) {
+            return;
+        }
+
+        const std::string prefix = ::util::WideToUtf8(config_dir.wstring()) + "\\?.lua;";
+
+        lua_getglobal(state, "package");
+        lua_getfield(state, -1, "path");
+        lua_pushfstring(state, "%s%s", prefix.c_str(), lua_tostring(state, -1));
+        lua_setfield(state, -3, "path");
+        lua_pop(state, 2);
+    }
+
+} // namespace
 
 Runtime::Runtime(Services services) : m_services(std::move(services)) {}
 
@@ -142,6 +160,7 @@ bool Runtime::CreateState() {
     }
 
     luaL_openlibs(m_state);
+    PrependConfigPackagePath(m_state, m_services.config_path);
 
     auto context = std::make_unique<Context>();
     context->binds = &m_binds;

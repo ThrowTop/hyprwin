@@ -345,12 +345,9 @@ namespace {
             return 1;
         }
         lua_newtable(state);
-        lua_pushnumber(state, static_cast<lua_Number>(lo));
-        lua_setfield(state, -2, "min");
-        lua_pushnumber(state, static_cast<lua_Number>(hi));
-        lua_setfield(state, -2, "max");
-        lua_pushnumber(state, static_cast<lua_Number>(step));
-        lua_setfield(state, -2, "step");
+        util::setNumberField(state, "min", static_cast<lua_Number>(lo));
+        util::setNumberField(state, "max", static_cast<lua_Number>(hi));
+        util::setNumberField(state, "step", static_cast<lua_Number>(step));
         return 1;
     }
 
@@ -371,11 +368,11 @@ namespace {
 
         if (key == "id") {
             const std::string utf8 = ::util::WideToUtf8(d->id);
-            lua_pushlstring(state, utf8.data(), utf8.size());
+            util::pushString(state, utf8);
             return 1;
         }
         if (key == "name") {
-            lua_pushlstring(state, d->name.data(), d->name.size());
+            util::pushString(state, d->name);
             return 1;
         }
         if (key == "default") {
@@ -476,27 +473,27 @@ namespace {
             return 1;
         }
         if (key == "process") {
-            lua_pushlstring(state, s->process.data(), s->process.size());
+            util::pushString(state, s->process);
             return 1;
         }
         if (key == "name") {
-            lua_pushlstring(state, s->name.data(), s->name.size());
+            util::pushString(state, s->name);
             return 1;
         }
         if (key == "id") {
-            lua_pushlstring(state, s->id.data(), s->id.size());
+            util::pushString(state, s->id);
             return 1;
         }
         if (key == "instance_id") {
-            lua_pushlstring(state, s->instance_id.data(), s->instance_id.size());
+            util::pushString(state, s->instance_id);
             return 1;
         }
         if (key == "state") {
-            lua_pushlstring(state, s->state.data(), s->state.size());
+            util::pushString(state, s->state);
             return 1;
         }
         if (key == "device_id") {
-            lua_pushlstring(state, s->device_id.data(), s->device_id.size());
+            util::pushString(state, s->device_id);
             return 1;
         }
         if (key == "volume") {
@@ -717,17 +714,17 @@ void registerApi(lua_State* state) {
     EnsureAudioDeviceMetatable(state);
     EnsureAudioSessionMetatable(state);
 
-    lua_newtable(state);
-    util::setFn(state, "volume", AudioVolume);
-    util::setFn(state, "volume_db", AudioVolumeDb);
-    util::setFn(state, "mute", AudioMute);
-    util::setFn(state, "cycle", AudioCycle);
-    util::setFn(state, "cycle_capture", AudioCycleCapture);
-    util::setFn(state, "playback_default", AudioPlaybackDefault);
-    util::setFn(state, "capture_default", AudioCaptureDefault);
-    util::setFn(state, "playback_devices", AudioPlaybackDevices);
-    util::setFn(state, "capture_devices", AudioCaptureDevices);
-    util::setFn(state, "sessions", AudioSessions);
-    lua_setfield(state, -2, "audio");
+    util::setTableField(state, "audio", [](lua_State* s) {
+        util::setFn(s, "volume", AudioVolume);
+        util::setFn(s, "volume_db", AudioVolumeDb);
+        util::setFn(s, "mute", AudioMute);
+        util::setFn(s, "cycle", AudioCycle);
+        util::setFn(s, "cycle_capture", AudioCycleCapture);
+        util::setFn(s, "playback_default", AudioPlaybackDefault);
+        util::setFn(s, "capture_default", AudioCaptureDefault);
+        util::setFn(s, "playback_devices", AudioPlaybackDevices);
+        util::setFn(s, "capture_devices", AudioCaptureDevices);
+        util::setFn(s, "sessions", AudioSessions);
+    });
 }
 } // namespace lua::audio

@@ -208,6 +208,9 @@ function HW.Window:pname() end
 ---@return integer?
 function HW.Window:pid() end
 
+---@return integer
+function HW.Window:hwnd() end
+
 ---@return rect?
 function HW.Window:visual_rect() end
 

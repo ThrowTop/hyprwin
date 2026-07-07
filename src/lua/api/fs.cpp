@@ -42,25 +42,19 @@ namespace {
         return path.lexically_normal();
     }
 
-    void PushString(lua_State* state, std::wstring_view value) {
-        const std::string utf8 = ::util::WideToUtf8(value);
-        lua_pushlstring(state, utf8.data(), utf8.size());
-    }
-
     void SetStringField(lua_State* state, const char* field, const std::filesystem::path& path) {
-        PushString(state, path.native());
-        lua_setfield(state, -2, field);
+        util::setWideStringField(state, field, path.native());
     }
 
     int PushNilString(lua_State* state, std::string_view message) {
         lua_pushnil(state);
-        lua_pushlstring(state, message.data(), message.size());
+        util::pushString(state, message);
         return 2;
     }
 
     int PushFalseString(lua_State* state, std::string_view message) {
         lua_pushboolean(state, 0);
-        lua_pushlstring(state, message.data(), message.size());
+        util::pushString(state, message);
         return 2;
     }
 
@@ -127,15 +121,13 @@ namespace {
                 else if (std::filesystem::is_symlink(status))
                     type = "symlink";
             }
-            lua_pushstring(state, type);
-            lua_setfield(state, -2, "type");
+            util::setStringField(state, "type", type);
 
             if (!status_ec && std::filesystem::is_regular_file(status)) {
                 std::error_code size_ec;
                 const auto size = it->file_size(size_ec);
                 if (!size_ec && size <= static_cast<std::uintmax_t>(std::numeric_limits<lua_Integer>::max())) {
-                    lua_pushinteger(state, static_cast<lua_Integer>(size));
-                    lua_setfield(state, -2, "size");
+                    util::setIntegerField(state, "size", static_cast<lua_Integer>(size));
                 }
             }
 
@@ -167,7 +159,7 @@ namespace {
         if (!file.good() && !file.eof())
             return PushNilString(state, "failed to read file");
 
-        lua_pushlstring(state, data.data(), data.size());
+        util::pushString(state, data);
         return 1;
     }
 
@@ -210,15 +202,15 @@ namespace {
 } // namespace
 
 void registerApi(lua_State* state) {
-    lua_newtable(state);
-    util::setFn(state, "exists", Exists);
-    util::setFn(state, "is_file", IsFile);
-    util::setFn(state, "is_dir", IsDir);
-    util::setFn(state, "list", List);
-    util::setFn(state, "read", Read);
-    util::setFn(state, "write", Write);
-    util::setFn(state, "mkdir", Mkdir);
-    lua_setfield(state, -2, "fs");
+    util::setTableField(state, "fs", [](lua_State* s) {
+        util::setFn(s, "exists", Exists);
+        util::setFn(s, "is_file", IsFile);
+        util::setFn(s, "is_dir", IsDir);
+        util::setFn(s, "list", List);
+        util::setFn(s, "read", Read);
+        util::setFn(s, "write", Write);
+        util::setFn(s, "mkdir", Mkdir);
+    });
 }
 
 } // namespace lua::fs
