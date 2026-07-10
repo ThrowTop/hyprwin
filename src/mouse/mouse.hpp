@@ -67,6 +67,7 @@ class Mouse {
     SessionType m_sessionType = SessionType::None;
     InteractionId m_interactionId = 0;
     InteractionId m_nextInteractionId = 1;
+    bool m_traceInteraction = false;
 };
 
 } // namespace hw

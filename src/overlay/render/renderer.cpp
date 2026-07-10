@@ -72,7 +72,7 @@ void OverlayRenderer::Destroy() noexcept {
     m_rectHalfW = 0.0f;
     m_rectHalfH = 0.0f;
     m_gradientScale = 1.0f;
-    m_settingsValid = false;
+    m_settingsSource = nullptr;
     m_lastRenderTicks = 0;
     m_sessionStartTicks = 0;
     m_gradientRuntimeAngle = 0.0f;
@@ -168,7 +168,7 @@ void OverlayRenderer::ClearSnapshot() noexcept {
     m_thumbnailShader.Clear();
 }
 
-RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept {
+RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const SettingsPtr& settings, SessionType sessionType, float dpiScale) noexcept {
     const RenderStatus ready = EnsureReady();
     if (ready != RenderStatus::Ok) {
         return ready;
@@ -189,7 +189,7 @@ RenderStatus OverlayRenderer::Render(const vec::i4& visualBounds, const Settings
     }
 
     ApplySettings(settings);
-    m_thumbnailCornerRadius = settings.corner_radius * dpiScale;
+    m_thumbnailCornerRadius = settings->corner_radius * dpiScale;
 
     LARGE_INTEGER now{};
     const bool haveNow = QueryPerformanceCounter(&now);
@@ -257,13 +257,13 @@ void OverlayRenderer::HandleDisplayChange(const vec::i4& bounds) noexcept {
     m_dx.ReleaseSwapResources();
 }
 
-void OverlayRenderer::ApplySettings(const Settings& settings) noexcept {
-    if (m_settingsValid && m_settings == settings) {
+void OverlayRenderer::ApplySettings(const SettingsPtr& settings) noexcept {
+    if (m_settingsSource == settings.get()) {
         return;
     }
 
-    m_settings = settings;
-    m_settingsValid = true;
+    m_settings = *settings;
+    m_settingsSource = settings.get();
     m_gradientRuntimeAngle = m_settings.gradient_angle;
     UpdateGradientDirection();
     m_lastRenderTicks = 0;

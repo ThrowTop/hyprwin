@@ -389,8 +389,9 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
         m_latestMousePos->store(ptWin, std::memory_order_relaxed);
     }
 
-    const SettingsPtr settings = LoadSettingsSnapshot(m_settings, DefaultSettings());
-    const bool traceGrabs = settings && settings->debug.trace_grabs;
+    const SettingsPtr settings = LoadSettingsSnapshot(m_settings);
+    const bool traceGrabs = settings->debug.enabled(DebugFlag::TraceGrabs);
+    const bool traceInteraction = settings->debug.enabled(DebugFlag::Interaction);
     const win::WindowAtPointResult selection = mouse::SelectTarget(ptWin, *settings);
     HWND candidate = selection.candidate;
     if (!candidate) {
@@ -469,11 +470,14 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
             m_interactionId = 0;
             return;
         }
-        LOG_DEBUG("interaction: id={} begin queued type=drag target={:p} cursor={} raw_rect={}",
-          m_interactionId,
-          reinterpret_cast<void*>(candidate),
-          pt,
-          rawRect);
+        m_traceInteraction = traceInteraction;
+        if (traceInteraction) {
+            LOG_DEBUG("interaction: id={} begin queued type=drag target={:p} cursor={} raw_rect={}",
+              m_interactionId,
+              reinterpret_cast<void*>(candidate),
+              pt,
+              rawRect);
+        }
         TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "accepted:drag");
         return;
     }
@@ -504,11 +508,14 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
         m_interactionId = 0;
         return;
     }
-    LOG_DEBUG("interaction: id={} begin queued type=resize target={:p} cursor={} raw_rect={}",
-      m_interactionId,
-      reinterpret_cast<void*>(candidate),
-      pt,
-      rawRect);
+    m_traceInteraction = traceInteraction;
+    if (traceInteraction) {
+        LOG_DEBUG("interaction: id={} begin queued type=resize target={:p} cursor={} raw_rect={}",
+          m_interactionId,
+          reinterpret_cast<void*>(candidate),
+          pt,
+          rawRect);
+    }
     TraceGrabAttempt(traceGrabs, isLeft, ptWin, selection, "accepted:resize");
 }
 
@@ -517,11 +524,14 @@ void Mouse::FinishOperation() noexcept {
         m_target = nullptr;
         m_sessionType = SessionType::None;
         m_interactionId = 0;
+        m_traceInteraction = false;
         return;
     }
 
     const POINT cursorWin = m_latestMousePos ? m_latestMousePos->load(std::memory_order_relaxed) : POINT{};
-    LOG_DEBUG("interaction: id={} commit queued cursor={}", m_interactionId, vec::i2::FromWin32(cursorWin));
+    if (m_traceInteraction) {
+        LOG_DEBUG("interaction: id={} commit queued cursor={}", m_interactionId, vec::i2::FromWin32(cursorWin));
+    }
     if (!m_overlay->Send(CommitInteraction{.interactionId = m_interactionId})) {
         LOG_WARN("interaction: id={} commit queue failed", m_interactionId);
     }
@@ -529,11 +539,14 @@ void Mouse::FinishOperation() noexcept {
     m_target = nullptr;
     m_sessionType = SessionType::None;
     m_interactionId = 0;
+    m_traceInteraction = false;
 }
 
 void Mouse::CancelOperation() noexcept {
     if (m_overlay && m_interactionId != 0) {
-        LOG_DEBUG("interaction: id={} cancel queued", m_interactionId);
+        if (m_traceInteraction) {
+            LOG_DEBUG("interaction: id={} cancel queued", m_interactionId);
+        }
         if (!m_overlay->Send(CancelInteraction{.interactionId = m_interactionId})) {
             LOG_WARN("interaction: id={} cancel queue failed", m_interactionId);
         }
@@ -541,6 +554,7 @@ void Mouse::CancelOperation() noexcept {
     m_target = nullptr;
     m_sessionType = SessionType::None;
     m_interactionId = 0;
+    m_traceInteraction = false;
 }
 
 ResizeCorner Mouse::ResolveResizeCorner(const Settings& settings, vec::i2 pt, const vec::i4& rawRect) const noexcept {

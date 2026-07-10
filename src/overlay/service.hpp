@@ -70,10 +70,13 @@ class OverlayService {
       OverlayActiveSession& active,
       SettingsPtr& settingsSnapshot,
       PreviewState& preview) noexcept;
-    void DrainPlacementResults(OverlayRenderer& renderer, OverlayActiveSession& active, PreviewState& preview) noexcept;
+    void DrainPlacementResults(OverlayRenderer& renderer,
+      OverlayActiveSession& active,
+      PreviewState& preview,
+      const DebugSettings& debug) noexcept;
     void RestoreBeforeTeardown(const OverlayActiveSession& active, PreviewState& preview) noexcept;
     void CompleteInteraction(OverlayRenderer& renderer, OverlayActiveSession& active, PreviewState& preview) noexcept;
-    PlacementWorker& EnsurePlacementWorker();
+    PlacementWorker& EnsurePlacementWorker(const DebugSettings& debug);
     void RetirePlacementWorkerIfUnused(const OverlayActiveSession& active, const Settings& settings) noexcept;
     void PublishOutlineUpdate(outline::Update update) noexcept;
     void PublishPlacementResult(const PlacementResult& result) noexcept;
@@ -88,6 +91,7 @@ class OverlayService {
     mutable std::mutex m_mutex;
     std::condition_variable m_cv;
     std::optional<OverlayCmd> m_pendingOutlineCommand;
+    std::atomic_bool m_outlineCommandPending{false};
     std::jthread m_thread;
     std::atomic_bool m_interactionReserved{false};
     vec::i4 m_latestBounds{};

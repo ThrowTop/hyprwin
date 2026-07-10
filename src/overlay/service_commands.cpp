@@ -34,7 +34,7 @@ void OverlayService::DrainCommands(
     }
 
     std::optional<OverlayCmd> outlineCommand;
-    {
+    if (m_outlineCommandPending.exchange(false, std::memory_order_acq_rel)) {
         std::lock_guard lock(m_mutex);
         outlineCommand = std::move(m_pendingOutlineCommand);
         m_pendingOutlineCommand.reset();
@@ -67,11 +67,13 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               const vec::i4 finalRawRect = session::ComputeBounds(active, cursor);
               m_latestBounds = finalRawRect;
               const HWND target = session::Target(active);
-              LOG_DEBUG("interaction: id={} commit received cursor={} raw_rect={} parked={}",
-                value.interactionId,
-                vec::i2::FromWin32(cursor),
-                finalRawRect,
-                preview.parkSubmitted);
+              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+                  LOG_DEBUG("interaction: id={} commit received cursor={} raw_rect={} parked={}",
+                    value.interactionId,
+                    vec::i2::FromWin32(cursor),
+                    finalRawRect,
+                    preview.parkSubmitted);
+              }
               if (preview.mode == OverlayPreview::Overlay) {
                   if (!win::PostMoveWindowToRawRect(target, finalRawRect.ToWin32())) {
                       LOG_WARN("interaction: id={} overlay commit queue failed target={:p}",
@@ -81,7 +83,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                   CompleteInteraction(renderer, active, preview);
                   return;
               }
-              EnsurePlacementWorker().Submit(PlacementRequest{
+              EnsurePlacementWorker(settingsSnapshot->debug).Submit(PlacementRequest{
                 .interactionId = value.interactionId,
                 .kind = PlacementKind::Commit,
                 .target = target,
@@ -101,7 +103,9 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                   LOG_WARN("interaction: id={} cancel ignored active_id={}", value.interactionId, activeId);
                   return;
               }
-              LOG_DEBUG("interaction: id={} cancel received park_submitted={}", value.interactionId, preview.parkSubmitted);
+              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+                  LOG_DEBUG("interaction: id={} cancel received park_submitted={}", value.interactionId, preview.parkSubmitted);
+              }
               if (preview.captureInProgress) {
                   renderer.CancelSnapshotCapture();
               }
@@ -140,15 +144,17 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               preview.liveRate = settingsSnapshot->live_preview_rate;
               preview.capturePending = preview.mode == OverlayPreview::Thumbnail;
               if (preview.mode != OverlayPreview::Overlay) {
-                  EnsurePlacementWorker();
+                  EnsurePlacementWorker(settingsSnapshot->debug);
               }
-              LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
-                value.session.interactionId,
-                session::TypeName(SessionType::Drag),
-                reinterpret_cast<void*>(value.session.target),
-                OverlayPreviewName(preview.mode),
-                preview.liveRate,
-                preview.capturePending);
+              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+                  LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
+                    value.session.interactionId,
+                    session::TypeName(SessionType::Drag),
+                    reinterpret_cast<void*>(value.session.target),
+                    OverlayPreviewName(preview.mode),
+                    preview.liveRate,
+                    preview.capturePending);
+              }
               session::SetCursor(active);
           } else if constexpr (std::is_same_v<T, BeginResize>) {
               if (session::IsActive(active)) {
@@ -165,15 +171,17 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               preview.liveRate = settingsSnapshot->live_preview_rate;
               preview.capturePending = preview.mode == OverlayPreview::Thumbnail;
               if (preview.mode != OverlayPreview::Overlay) {
-                  EnsurePlacementWorker();
+                  EnsurePlacementWorker(settingsSnapshot->debug);
               }
-              LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
-                value.session.interactionId,
-                session::TypeName(SessionType::Resize),
-                reinterpret_cast<void*>(value.session.target),
-                OverlayPreviewName(preview.mode),
-                preview.liveRate,
-                preview.capturePending);
+              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+                  LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
+                    value.session.interactionId,
+                    session::TypeName(SessionType::Resize),
+                    reinterpret_cast<void*>(value.session.target),
+                    OverlayPreviewName(preview.mode),
+                    preview.liveRate,
+                    preview.capturePending);
+              }
               session::SetCursor(active);
           }
       },

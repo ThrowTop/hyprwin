@@ -53,13 +53,13 @@ class OverlayRenderer {
     void CancelSnapshotCapture() noexcept;
     void ClearSnapshot() noexcept;
 
-    [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const Settings& settings, SessionType sessionType, float dpiScale) noexcept;
+    [[nodiscard]] RenderStatus Render(const vec::i4& visualBounds, const SettingsPtr& settings, SessionType sessionType, float dpiScale) noexcept;
 
   private:
     [[nodiscard]] RenderStatus EnsureReady() noexcept;
     [[nodiscard]] RenderStatus PresentClear(bool flushDwm) noexcept;
     [[nodiscard]] RenderStatus PresentDraw(bool flushDwm, bool resourcesReady) noexcept;
-    void ApplySettings(const Settings& settings) noexcept;
+    void ApplySettings(const SettingsPtr& settings) noexcept;
     void UpdateGeometry() noexcept;
     void UpdateGradientDirection() noexcept;
     [[nodiscard]] outline::ShaderParams BuildShaderParams(SessionType sessionType, float dpiScale) const noexcept;
@@ -86,7 +86,7 @@ class OverlayRenderer {
     float m_rectHalfW = 0.0f;
     float m_rectHalfH = 0.0f;
     float m_gradientScale = 1.0f;
-    bool m_settingsValid = false;
+    const Settings* m_settingsSource = nullptr;
     Settings m_settings{};
 
     float m_gradientRuntimeAngle = 0.0f;

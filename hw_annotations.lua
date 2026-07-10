@@ -400,13 +400,16 @@ function HW.Timer:call() end
 -- hw.settings types  (all fields optional -- defaults apply)
 -- =============================================================
 
----@class hw_settings_debug
----@field trace_binds? boolean
----@field bench_binds? boolean
----@field trace_grabs? boolean
----@field trace_super? boolean
----@field trace_timeout? boolean
----@field last_config_load_ms? integer
+---@alias hw_debug_flag
+---| "trace_binds"
+---| "bench_binds"
+---| "trace_grabs"
+---| "trace_super"
+---| "trace_timeout"
+---| "overlay"
+---| "window_placement"
+---| "interaction"
+---| "snapshot"
 
 ---@class hw_grab_filter
 ---@field action "include"|"exclude"
@@ -429,7 +432,7 @@ function HW.Timer:call() end
 ---@field live_preview_rate? integer
 ---@field resize_corner? "closest"|"topleft"|"topright"|"bottomleft"|"bottomright"
 ---@field grab_filters? hw_grab_filter[]
----@field debug? hw_settings_debug
+---@field debug? hw_debug_flag[]
 
 ---@class hw_debug_shader_compiler_status
 ---@field available boolean

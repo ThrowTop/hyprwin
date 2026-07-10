@@ -67,7 +67,7 @@ bool Runtime::DispatchBind(const KeyEvent& event) {
         return false;
     }
 
-    if (m_pending.debug.trace_binds) {
+    if (m_pending.debug.enabled(hw::DebugFlag::TraceBinds)) {
         logging::write(logging::Level::Trace, "lua bind dispatch: {} (vk={} modifiers={})", FormatKeyEvent(event), event.vk, static_cast<unsigned>(event.modifiers));
     }
 
@@ -76,13 +76,13 @@ bool Runtime::DispatchBind(const KeyEvent& event) {
     std::string error;
 
     std::chrono::steady_clock::time_point bind_start;
-    if (m_pending.debug.bench_binds) {
+    if (m_pending.debug.enabled(hw::DebugFlag::BenchBinds)) {
         bind_start = std::chrono::steady_clock::now();
     }
 
     const bool ok = GuardedCall(0, 0, 0, "bind callback", &error);
 
-    if (m_pending.debug.bench_binds) {
+    if (m_pending.debug.enabled(hw::DebugFlag::BenchBinds)) {
         const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - bind_start).count();
         logging::write(logging::Level::Debug, "lua bind {} took {}us", FormatKeyEvent(event), us);
     }
@@ -95,7 +95,7 @@ bool Runtime::DispatchSuper(bool pressed) {
         return false;
     }
 
-    if (m_pending.debug.trace_super) {
+    if (m_pending.debug.enabled(hw::DebugFlag::TraceSuper)) {
         logging::write(logging::Level::Trace, "lua super dispatch: {}", pressed ? "pressed" : "released");
     }
 
@@ -145,7 +145,6 @@ bool Runtime::LoadConfigImpl(std::wstring_view path) {
     m_safeMode.active = false;
     m_safeMode.reason.clear();
     const auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - load_start).count();
-    m_pending.debug.last_config_load_ms = static_cast<std::uint32_t>(load_ms);
     PublishSettings();
     NotifySettingsChanged();
     LOG_INFO("lua config loaded: {} in {}ms", file, load_ms);
@@ -235,8 +234,11 @@ bool Runtime::GuardedCall(int nargs, int nresults, int errfunc, std::string_view
         errorHandler = functionIndex;
     }
 
-    const bool trace_this_call = m_pending.debug.trace_timeout;
-    const auto call_start = std::chrono::steady_clock::now();
+    const bool trace_this_call = m_pending.debug.enabled(hw::DebugFlag::TraceTimeout);
+    std::chrono::steady_clock::time_point call_start{};
+    if (trace_this_call) {
+        call_start = std::chrono::steady_clock::now();
+    }
 
     if (timeout_enabled) {
         InstallTimeout(m_state, m_timeout);

@@ -12,14 +12,16 @@
 
 namespace hw {
 namespace {
-    bool RecoverRenderer(OverlayRenderer& renderer, RenderStatus status) noexcept {
+    bool RecoverRenderer(OverlayRenderer& renderer, RenderStatus status, const DebugSettings& debug) noexcept {
         switch (status) {
             case RenderStatus::Ok:
                 return true;
             case RenderStatus::SwapchainInvalid:
             case RenderStatus::DeviceLost:
                 if (renderer.ResetDevice()) {
-                    LOG_DEBUG("overlay_service: renderer recovery succeeded status={}", RenderStatusName(status));
+                    if (debug.enabled(DebugFlag::Overlay)) {
+                        LOG_DEBUG("overlay_service: renderer recovery succeeded status={}", RenderStatusName(status));
+                    }
                     return true;
                 }
                 LOG_ERROR("overlay_service: renderer recovery failed status={}", RenderStatusName(status));
@@ -93,6 +95,7 @@ void OverlayService::PublishOutlineUpdate(outline::Update update) noexcept {
     {
         std::lock_guard lock(m_mutex);
         m_pendingOutlineCommand = std::visit([](auto&& value) -> OverlayCmd { return std::forward<decltype(value)>(value); }, std::move(update));
+        m_outlineCommandPending.store(true, std::memory_order_release);
     }
     m_cv.notify_one();
 }
@@ -111,9 +114,9 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         return;
     }
 
-    SettingsPtr settingsSnapshot = LoadSettingsSnapshot(m_settings, DefaultSettings());
+    SettingsPtr settingsSnapshot = LoadSettingsSnapshot(m_settings);
     m_outlineManager.ApplySettings(*settingsSnapshot);
-    if (!RecoverRenderer(renderer, renderer.Render(window.Bounds(), *settingsSnapshot, SessionType::None, 1.0f))) {
+    if (!RecoverRenderer(renderer, renderer.Render(window.Bounds(), settingsSnapshot, SessionType::None, 1.0f), settingsSnapshot->debug)) {
         LOG_CRITICAL("Failed to prime overlay renderer");
         return;
     }
@@ -125,7 +128,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         if (!session::IsActive(active)) {
             std::unique_lock lock(m_mutex);
             m_cv.wait(lock, [&] {
-                return token.stop_requested() || !m_commands.empty() || !m_placementResults.empty() || m_pendingOutlineCommand.has_value() ||
+                return token.stop_requested() || !m_commands.empty() || !m_placementResults.empty() || m_outlineCommandPending.load(std::memory_order_acquire) ||
                        m_settingsDirty.load(std::memory_order_relaxed);
             });
             lock.unlock();
@@ -139,7 +142,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
                 HandleDisplayChange(window, renderer);
             }
 
-            DrainPlacementResults(renderer, active, preview);
+            DrainPlacementResults(renderer, active, preview, settingsSnapshot->debug);
             DrainCommands(renderer, active, settingsSnapshot, preview);
             RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
 
@@ -152,7 +155,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             const RenderStatus clearStatus = renderer.ClearForShow();
             if (clearStatus != RenderStatus::Ok) {
                 LOG_ERROR("overlay_service: ClearForShow failed status={}", RenderStatusName(clearStatus));
-                RecoverRenderer(renderer, clearStatus);
+                RecoverRenderer(renderer, clearStatus, settingsSnapshot->debug);
                 RestoreBeforeTeardown(active, preview);
                 CompleteInteraction(renderer, active, preview);
                 continue;
@@ -164,7 +167,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
         if (window.ConsumeDisplayChanged()) {
             HandleDisplayChange(window, renderer);
         }
-        DrainPlacementResults(renderer, active, preview);
+        DrainPlacementResults(renderer, active, preview, settingsSnapshot->debug);
         DrainCommands(renderer, active, settingsSnapshot, preview);
         RetirePlacementWorkerIfUnused(active, *settingsSnapshot);
 
@@ -183,31 +186,39 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
 
         const vec::i4 visualBounds = ApplyVisualOffset(logicalBounds, session::VisualOffset(active));
         const SessionType sessionType = GetSessionType(active);
-        const RenderStatus renderStatus = renderer.Render(visualBounds, *settingsSnapshot, sessionType, session::DpiScale(active));
+        const RenderStatus renderStatus = renderer.Render(visualBounds, settingsSnapshot, sessionType, session::DpiScale(active));
         if (renderStatus != RenderStatus::Ok) {
             LOG_ERROR("overlay_service: Render failed status={}", RenderStatusName(renderStatus));
-            RecoverRenderer(renderer, renderStatus);
+            RecoverRenderer(renderer, renderStatus, settingsSnapshot->debug);
             RestoreBeforeTeardown(active, preview);
             CompleteInteraction(renderer, active, preview);
         } else if (preview.capturePending) {
             preview.capturePending = false;
-            LOG_DEBUG("interaction: id={} first outline presented; snapshot capture starting", session::Id(active));
+            if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                LOG_DEBUG("interaction: id={} first outline presented; snapshot capture starting", session::Id(active));
+            }
             const thumbnail::WindowSnapshotStatus status = renderer.BeginSnapshotCapture(session::Target(active));
             preview.captureInProgress = status == thumbnail::WindowSnapshotStatus::Pending;
             preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
             if (status == thumbnail::WindowSnapshotStatus::Failed) {
-                LOG_DEBUG("interaction: id={} snapshot capture unavailable; continuing overlay-only", session::Id(active));
+                if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                    LOG_DEBUG("interaction: id={} snapshot capture unavailable; continuing overlay-only", session::Id(active));
+                }
             }
         } else if (preview.captureInProgress) {
             const thumbnail::WindowSnapshotStatus status = renderer.UpdateSnapshotCapture();
             if (status != thumbnail::WindowSnapshotStatus::Pending) {
                 preview.captureInProgress = false;
                 preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
-                LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), status == thumbnail::WindowSnapshotStatus::Ready);
+                if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                    LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), status == thumbnail::WindowSnapshotStatus::Ready);
+                }
             }
         } else if (preview.parkPending) {
             const InteractionId interactionId = session::Id(active);
-            LOG_DEBUG("interaction: id={} first thumbnail frame presented; queuing park", interactionId);
+            if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                LOG_DEBUG("interaction: id={} first thumbnail frame presented; queuing park", interactionId);
+            }
             const vec::i4 originalRawRect = session::OriginalRawRect(active);
             const vec::i4 virtualBounds = win::GetVirtualScreenBounds();
             const vec::i4 parkedRawRect{
@@ -216,12 +227,14 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
               virtualBounds.x2 + 64 + originalRawRect.Width(),
               virtualBounds.y + originalRawRect.Height(),
             };
-            LOG_DEBUG("interaction: id={} park submitting target={:p} virtual_bounds={} requested_raw_rect={}",
-              interactionId,
-              reinterpret_cast<void*>(session::Target(active)),
-              virtualBounds,
-              parkedRawRect);
-            EnsurePlacementWorker().Submit(PlacementRequest{
+            if (settingsSnapshot->debug.enabled(DebugFlag::WindowPlacement)) {
+                LOG_DEBUG("interaction: id={} park submitting target={:p} virtual_bounds={} requested_raw_rect={}",
+                  interactionId,
+                  reinterpret_cast<void*>(session::Target(active)),
+                  virtualBounds,
+                  parkedRawRect);
+            }
+            EnsurePlacementWorker(settingsSnapshot->debug).Submit(PlacementRequest{
               .interactionId = interactionId,
               .kind = PlacementKind::Park,
               .target = session::Target(active),
@@ -234,7 +247,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             const vec::i4 comparisonRawRect = preview.livePlacementSubmitted ? preview.lastLiveRawRect : session::OriginalRawRect(active);
             const bool rateReady = preview.liveRate == 0 || now >= preview.nextLivePlacement;
             if (rateReady && logicalBounds != comparisonRawRect) {
-                EnsurePlacementWorker().Submit(PlacementRequest{
+                EnsurePlacementWorker(settingsSnapshot->debug).Submit(PlacementRequest{
                   .interactionId = session::Id(active),
                   .kind = PlacementKind::Live,
                   .target = session::Target(active),

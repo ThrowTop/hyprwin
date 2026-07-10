@@ -31,10 +31,12 @@ void OverlayService::PublishPlacementResult(const PlacementResult& result) noexc
     m_cv.notify_one();
 }
 
-PlacementWorker& OverlayService::EnsurePlacementWorker() {
+PlacementWorker& OverlayService::EnsurePlacementWorker(const DebugSettings& debug) {
     if (!m_placementWorker) {
         m_placementWorker = std::make_unique<PlacementWorker>([this](const PlacementResult& result) { PublishPlacementResult(result); });
-        LOG_DEBUG("placement_worker: started");
+        if (debug.enabled(DebugFlag::WindowPlacement)) {
+            LOG_DEBUG("placement_worker: started");
+        }
     }
     return *m_placementWorker;
 }
@@ -45,29 +47,36 @@ void OverlayService::RetirePlacementWorkerIfUnused(const OverlayActiveSession& a
     if (m_placementWorker && !session::IsActive(active) && !placementWorkerRequired) {
         m_placementWorker->WaitIdle();
         m_placementWorker.reset();
-        LOG_DEBUG("placement_worker: stopped");
+        if (settings.debug.enabled(DebugFlag::WindowPlacement)) {
+            LOG_DEBUG("placement_worker: stopped");
+        }
     }
 }
 
 void OverlayService::DrainPlacementResults(
   OverlayRenderer& renderer,
   OverlayActiveSession& active,
-  PreviewState& preview) noexcept {
+  PreviewState& preview,
+  const DebugSettings& debug) noexcept {
     PlacementResult result;
     while (m_placementResults.pop(result)) {
         const InteractionId activeId = session::Id(active);
         if (result.interactionId == 0 || result.interactionId != activeId) {
-            LOG_DEBUG("interaction: id={} stale placement result ignored kind={} active_id={}",
-              result.interactionId,
-              PlacementKindName(result.kind),
-              activeId);
+            if (debug.enabled(DebugFlag::WindowPlacement)) {
+                LOG_DEBUG("interaction: id={} stale placement result ignored kind={} active_id={}",
+                  result.interactionId,
+                  PlacementKindName(result.kind),
+                  activeId);
+            }
             continue;
         }
 
         if (result.kind != PlacementKind::Live) {
-            LOG_DEBUG("interaction: id={} placement completed kind={}",
-              result.interactionId,
-              PlacementKindName(result.kind));
+            if (debug.enabled(DebugFlag::WindowPlacement)) {
+                LOG_DEBUG("interaction: id={} placement completed kind={}",
+                  result.interactionId,
+                  PlacementKindName(result.kind));
+            }
         }
 
         switch (result.kind) {

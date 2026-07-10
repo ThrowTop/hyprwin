@@ -17,7 +17,6 @@ namespace lua::settings {
 namespace {
     inline char kHwImplRegistryKey;
     inline char kSettingsRegistryKey;
-    inline char kDebugSettingsRegistryKey;
 
     const char* ResizeCornerName(hw::ResizeCorner c) noexcept {
         switch (c) {
@@ -47,11 +46,56 @@ namespace {
         return "overlay";
     }
 
-    const auto kDebugFields = std::make_tuple(fields::auto_field("trace_binds", &hw::DebugSettings::trace_binds),
-      fields::auto_field("bench_binds", &hw::DebugSettings::bench_binds),
-      fields::auto_field("trace_grabs", &hw::DebugSettings::trace_grabs),
-      fields::auto_field("trace_super", &hw::DebugSettings::trace_super),
-      fields::auto_field("trace_timeout", &hw::DebugSettings::trace_timeout));
+    std::optional<hw::DebugSettings> ReadDebugSettings(lua_State* state, int idx) {
+        if (!lua_istable(state, idx)) {
+            return std::nullopt;
+        }
+
+        const int table = util::absIndex(state, idx);
+        hw::DebugSettings settings{};
+        const std::size_t count = lua_objlen(state, table);
+
+        for (std::size_t i = 1; i <= count; ++i) {
+            lua_rawgeti(state, table, static_cast<int>(i));
+            if (lua_type(state, -1) != LUA_TSTRING) {
+                lua_pop(state, 1);
+                return std::nullopt;
+            }
+
+            const std::string name = util::toString(state, -1);
+            lua_pop(state, 1);
+            const auto flag = hw::ParseDebugFlag(name);
+            if (!flag) {
+                LOG_ERROR("lua: unknown debug flag '{}'", name);
+                return std::nullopt;
+            }
+            settings.set(*flag);
+        }
+
+        lua_pushnil(state);
+        while (lua_next(state, table) != 0) {
+            const bool numericKey = lua_type(state, -2) == LUA_TNUMBER;
+            const lua_Number keyNumber = numericKey ? lua_tonumber(state, -2) : 0;
+            lua_pop(state, 1);
+            if (!numericKey || !std::isfinite(keyNumber) || keyNumber < 1 || keyNumber > static_cast<lua_Number>(count) || std::floor(keyNumber) != keyNumber) {
+                lua_pop(state, 1);
+                return std::nullopt;
+            }
+        }
+
+        return settings;
+    }
+
+    void PushDebugSettings(lua_State* state, const hw::DebugSettings& settings) {
+        lua_createtable(state, static_cast<int>(hw::kDebugFlags.size()), 0);
+        int index = 1;
+        for (const auto& [name, flag] : hw::kDebugFlags) {
+            if (settings.enabled(flag)) {
+                util::pushString(state, name);
+                lua_rawseti(state, -2, index++);
+            }
+        }
+    }
 
     void PushPalette(lua_State* state, const hw::ShaderPalette& palette) {
         lua_createtable(state, static_cast<int>(palette.count), 0);
@@ -370,20 +414,12 @@ namespace {
         }
 
         if (key == "debug") {
-            if (!lua_istable(state, idx)) {
-                LOG_ERROR("lua: hw.settings.debug must be a table");
+            auto debug = ReadDebugSettings(state, idx);
+            if (!debug) {
+                LOG_ERROR("lua: rejected setting 'debug'; expected a list of flag names");
                 return false;
             }
-            lua_pushnil(state);
-            while (lua_next(state, idx) != 0) {
-                if (lua_isstring(state, -2)) {
-                    const std::string field = util::toString(state, -2);
-                    if (!fields::applyField(state, s.debug, field, lua_gettop(state), kDebugFields)) {
-                        LOG_ERROR("lua: unknown hw.settings.debug field '{}'", field);
-                    }
-                }
-                lua_pop(state, 1);
-            }
+            s.debug = *debug;
             MaybePublish(context);
             return true;
         }
@@ -437,30 +473,6 @@ namespace {
         return true;
     }
 
-    int DebugSettingsIndex(lua_State* state) {
-        Context* context = lua::context(state);
-        if (!context || !context->pending_settings)
-            util::raise(state, "lua api context missing");
-        const std::string key = util::toString(state, 2);
-        if (key == "last_config_load_ms") {
-            lua_pushinteger(state, context->pending_settings->debug.last_config_load_ms);
-            return 1;
-        }
-        fields::pushField(state, context->pending_settings->debug, key, kDebugFields);
-        return 1;
-    }
-
-    int DebugSettingsNewIndex(lua_State* state) {
-        Context* context = lua::context(state);
-        if (!context || !context->pending_settings)
-            util::raise(state, "lua api context missing");
-        const std::string key = util::toString(state, 2);
-        if (!fields::applyField(state, context->pending_settings->debug, key, 3, kDebugFields)) {
-            util::raise(state, "unknown hw.settings.debug field");
-        }
-        return 0;
-    }
-
     int SettingsIndex(lua_State* state) {
         Context* context = lua::context(state);
         if (!context || !context->pending_settings)
@@ -470,7 +482,7 @@ namespace {
         if (key == "super") {
             lua_pushstring(state, s.super_vk == VK_RWIN ? "RWIN" : "LWIN");
         } else if (key == "debug") {
-            PushRegistryValue(state, &kDebugSettingsRegistryKey);
+            PushDebugSettings(state, s.debug);
         } else if (key == "shader") {
             PushShaderPath(state, s.shader_path);
         } else if (key == "grab_filters") {
@@ -491,16 +503,6 @@ namespace {
 } // namespace
 
 void registerApi(lua_State* state) {
-    lua_newtable(state);
-    lua_newtable(state);
-    util::setFn(state, "__index", DebugSettingsIndex);
-    util::setFn(state, "__newindex", DebugSettingsNewIndex);
-    lua_setmetatable(state, -2);
-    lua_pushlightuserdata(state, &kDebugSettingsRegistryKey);
-    lua_pushvalue(state, -2);
-    lua_rawset(state, LUA_REGISTRYINDEX);
-    lua_pop(state, 1);
-
     lua_newtable(state);
     lua_newtable(state);
     util::setFn(state, "__index", SettingsIndex);

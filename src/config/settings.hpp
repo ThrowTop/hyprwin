@@ -7,6 +7,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "util/color.hpp"
@@ -54,15 +56,64 @@ struct GrabFilterRule {
     bool operator==(const GrabFilterRule&) const = default;
 };
 
+// Keep the C++ identifier and Lua name for every debug toggle in one place.
+#define HW_DEBUG_FLAG_LIST(X)                        \
+    X(TraceBinds, "trace_binds")                    \
+    X(BenchBinds, "bench_binds")                    \
+    X(TraceGrabs, "trace_grabs")                    \
+    X(TraceSuper, "trace_super")                    \
+    X(TraceTimeout, "trace_timeout")                \
+    X(Overlay, "overlay")                           \
+    X(WindowPlacement, "window_placement")          \
+    X(Interaction, "interaction")                   \
+    X(Snapshot, "snapshot")
+
+enum class DebugFlag : std::uint8_t {
+#define HW_DEBUG_FLAG_ENUM(name, luaName) name,
+    HW_DEBUG_FLAG_LIST(HW_DEBUG_FLAG_ENUM)
+#undef HW_DEBUG_FLAG_ENUM
+    Count,
+};
+
+inline constexpr std::array<std::pair<std::string_view, DebugFlag>, std::to_underlying(DebugFlag::Count)> kDebugFlags{{
+#define HW_DEBUG_FLAG_ENTRY(name, luaName) {luaName, DebugFlag::name},
+  HW_DEBUG_FLAG_LIST(HW_DEBUG_FLAG_ENTRY)
+#undef HW_DEBUG_FLAG_ENTRY
+}};
+
+#undef HW_DEBUG_FLAG_LIST
+
+[[nodiscard]] constexpr std::optional<DebugFlag> ParseDebugFlag(std::string_view name) noexcept {
+    for (const auto& [candidate, flag] : kDebugFlags) {
+        if (candidate == name) {
+            return flag;
+        }
+    }
+    return std::nullopt;
+}
+
 struct DebugSettings {
-    bool trace_binds = false;
-    bool bench_binds = false;
-    bool trace_grabs = false;
-    bool trace_super = false;
-    bool trace_timeout = false;
-    std::uint32_t last_config_load_ms = 0;
+    using Mask = std::uint64_t;
+
+    Mask flags = 0;
+
+    [[nodiscard]] constexpr bool enabled(DebugFlag flag) const noexcept {
+        return (flags & (Mask{1} << std::to_underlying(flag))) != 0;
+    }
+
+    constexpr void set(DebugFlag flag, bool value = true) noexcept {
+        const Mask bit = Mask{1} << std::to_underlying(flag);
+        if (value) {
+            flags |= bit;
+        } else {
+            flags &= ~bit;
+        }
+    }
+
     bool operator==(const DebugSettings&) const = default;
 };
+
+static_assert(std::to_underlying(DebugFlag::Count) <= 64);
 
 struct Settings {
     UINT super_vk = VK_LWIN;
@@ -92,7 +143,18 @@ using SettingsPtr = std::shared_ptr<const Settings>;
 using AtomicSettingsPtr = std::atomic<SettingsPtr>;
 
 inline SettingsPtr DefaultSettings() {
-    return std::make_shared<Settings>();
+    static const SettingsPtr settings = std::make_shared<const Settings>();
+    return settings;
+}
+
+inline SettingsPtr LoadSettingsSnapshot(const AtomicSettingsPtr* settings) noexcept {
+    if (settings) {
+        SettingsPtr snapshot = settings->load(std::memory_order_acquire);
+        if (snapshot) {
+            return snapshot;
+        }
+    }
+    return DefaultSettings();
 }
 
 inline SettingsPtr LoadSettingsSnapshot(const AtomicSettingsPtr* settings, SettingsPtr fallback) noexcept {
