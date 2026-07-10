@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 
 function(hyprwin_add_lua_stdlib target)
-  if(NOT HYPRWIN_LUAJIT_EXE OR NOT HYPRWIN_LUAJIT_STAMP OR NOT HYPRWIN_LUAJIT_LUA_PATH)
+  if(NOT HYPRWIN_LUAJIT_EXE OR NOT HYPRWIN_LUAJIT_LUA_PATH)
     message(FATAL_ERROR "hyprwin_add_lua_stdlib requires hyprwin_add_luajit to run first")
   endif()
 
@@ -12,7 +12,7 @@ function(hyprwin_add_lua_stdlib target)
     OUTPUT  "${_stdlib_bc_h}"
     COMMAND "${CMAKE_COMMAND}" -E env "LUA_PATH=${HYPRWIN_LUAJIT_LUA_PATH};;"
             "${HYPRWIN_LUAJIT_EXE}" -b -t h -n stdlib "${_stdlib_src}" "${_stdlib_bc_h}"
-    DEPENDS "${_stdlib_src}" "${HYPRWIN_LUAJIT_STAMP}"
+    DEPENDS "${_stdlib_src}" "${HYPRWIN_LUAJIT_EXE}"
     VERBATIM
     COMMENT "Compiling stdlib.lua to bytecode"
   )

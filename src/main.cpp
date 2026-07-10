@@ -7,8 +7,9 @@
 #include "res/resource_ids.h"
 #include "tray/tray.hpp"
 #include "util/debug.hpp"
-#include "win/native.hpp"
+#include "util/strings.hpp"
 #include "version.hpp"
+#include "win/native.hpp"
 
 #include <atomic>
 #include <cstdlib>
@@ -53,11 +54,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 int hyprwin_main() {
     SET_THREAD_NAME("MAIN");
-    LOG_INFO("hyprwin starting version={} build={} arch=x64 pid={} perf={}",
-      HYPRWIN_VERSION,
-      kBuildType,
-      GetCurrentProcessId(),
-      HYPRWIN_ENABLE_PERF != 0);
+    LOG_INFO("hyprwin starting version={} build={} arch=x64 pid={} perf={}", HYPRWIN_VERSION, kBuildType, GetCurrentProcessId(), HYPRWIN_ENABLE_PERF != 0);
 
 #ifdef HYPRWIN_RELEASE
     if (!win::EnsureRunAsAdminAndExitIfNot()) {
@@ -124,7 +121,8 @@ int hyprwin_main() {
         .released = [&mouse] { mouse.UninstallHook(); },
       });
 
-    sys_tray->setTooltip(L"HyprWin");
+    sys_tray->setTooltip(::util::Utf8ToWide("HyprWin " HYPRWIN_VERSION));
+
     sys_tray->DarkMode(tray::dark::AppModeForceDark);
 
     auto reloadBtn = sys_tray->addEntry(tray::Button(L"Reload Config", [&] { keyboard.RequestReloadConfig(); }));

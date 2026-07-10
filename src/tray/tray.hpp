@@ -138,7 +138,7 @@ class Tray : public BaseTray {
         notifyData.cbSize = sizeof(NOTIFYICONDATAW);
         notifyData.hWnd = hwnd;
         notifyData.uID = 1;
-        notifyData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+        notifyData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
         notifyData.uCallbackMessage = WM_TRAY;
         notifyData.hIcon = this->icon;
 
@@ -163,10 +163,8 @@ class Tray : public BaseTray {
     }
 
     void setTooltip(const std::wstring& tip) {
-        NOTIFYICONDATAW nid = notifyData; // copy
-        nid.uFlags = NIF_TIP;
-        StringCchCopyW(nid.szTip, ARRAYSIZE(nid.szTip), tip.c_str());
-        Shell_NotifyIconW(NIM_MODIFY, &nid);
+        StringCchCopyW(notifyData.szTip, ARRAYSIZE(notifyData.szTip), tip.c_str());
+        Shell_NotifyIconW(NIM_MODIFY, &notifyData);
     }
 
     void showNotification(const std::wstring& title, const std::wstring& body, DWORD infoFlags = NIIF_INFO, const Icon& ic = Icon()) {
