@@ -138,6 +138,16 @@ int hyprwin_main() {
         }))
       ->setGlyphIcon(tray::Icon::FromStock(SIID_FOLDEROPEN));
 
+    sys_tray
+      ->addEntry(tray::Button(L"Debug Logs", [] {
+          if (logging::viewer_open()) {
+              logging::close_viewer();
+          } else {
+              logging::open_viewer();
+          }
+      }))
+      ->setGlyphIcon(tray::Icon::FromStock(SIID_INFO));
+
     sys_tray->addEntry(tray::Separator());
 
     sys_tray->addEntry(tray::Button(L"Exit", [&] { keyboard.RequestExit(); }))->setGlyphIcon(tray::Icon(LoadIconW(nullptr, IDI_HAND), tray::OwnershipPolicy::Borrow));

@@ -121,7 +121,7 @@ DWORD GetProcessId(HWND hwnd) noexcept {
     return pid;
 }
 
-std::wstring GetProcessNameByPid(DWORD pid) {
+std::wstring GetProcessPathByPid(DWORD pid) {
     if (pid == 0) {
         return {};
     }
@@ -131,15 +131,24 @@ std::wstring GetProcessNameByPid(DWORD pid) {
         return {};
     }
 
-    wchar_t path[MAX_PATH]{};
+    wchar_t buffer[MAX_PATH]{};
     DWORD size = MAX_PATH;
-    std::wstring name;
-    if (QueryFullProcessImageNameW(process, 0, path, &size) != FALSE) {
-        const wchar_t* file = wcsrchr(path, L'\\');
-        name = file ? file + 1 : path;
+    std::wstring path;
+    if (QueryFullProcessImageNameW(process, 0, buffer, &size) != FALSE) {
+        path.assign(buffer, size);
     }
     CloseHandle(process);
-    return name;
+    return path;
+}
+
+std::wstring GetProcessNameByPid(DWORD pid) {
+    const std::wstring path = GetProcessPathByPid(pid);
+    const std::size_t separator = path.find_last_of(L'\\');
+    return separator == std::wstring::npos ? path : path.substr(separator + 1);
+}
+
+std::wstring GetProcessPath(HWND hwnd) {
+    return GetProcessPathByPid(GetProcessId(hwnd));
 }
 
 std::wstring GetProcessName(HWND hwnd) {

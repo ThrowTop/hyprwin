@@ -56,27 +56,26 @@ struct GrabFilterRule {
     bool operator==(const GrabFilterRule&) const = default;
 };
 
-// Keep the C++ identifier and Lua name for every debug toggle in one place.
-#define HW_DEBUG_FLAG_LIST(X)                        \
-    X(TraceBinds, "trace_binds")                    \
-    X(BenchBinds, "bench_binds")                    \
-    X(TraceGrabs, "trace_grabs")                    \
-    X(TraceSuper, "trace_super")                    \
-    X(TraceTimeout, "trace_timeout")                \
-    X(Overlay, "overlay")                           \
-    X(WindowPlacement, "window_placement")          \
-    X(Interaction, "interaction")                   \
-    X(Snapshot, "snapshot")
+#define HW_DEBUG_FLAG_LIST(X) \
+    X(trace_binds)             \
+    X(bench_binds)             \
+    X(trace_grabs)             \
+    X(trace_super)             \
+    X(trace_timeout)           \
+    X(overlay)                 \
+    X(window_placement)        \
+    X(interaction)             \
+    X(snapshot)
 
 enum class DebugFlag : std::uint8_t {
-#define HW_DEBUG_FLAG_ENUM(name, luaName) name,
+#define HW_DEBUG_FLAG_ENUM(name) name,
     HW_DEBUG_FLAG_LIST(HW_DEBUG_FLAG_ENUM)
 #undef HW_DEBUG_FLAG_ENUM
     Count,
 };
 
 inline constexpr std::array<std::pair<std::string_view, DebugFlag>, std::to_underlying(DebugFlag::Count)> kDebugFlags{{
-#define HW_DEBUG_FLAG_ENTRY(name, luaName) {luaName, DebugFlag::name},
+#define HW_DEBUG_FLAG_ENTRY(name) {#name, DebugFlag::name},
   HW_DEBUG_FLAG_LIST(HW_DEBUG_FLAG_ENTRY)
 #undef HW_DEBUG_FLAG_ENTRY
 }};

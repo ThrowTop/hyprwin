@@ -30,8 +30,6 @@ namespace {
                 return "shell-protected";
             case win::WindowFilterReason::Child:
                 return "child";
-            case win::WindowFilterReason::ToolWindow:
-                return "tool-window";
             case win::WindowFilterReason::NoActivate:
                 return "no-activate";
             case win::WindowFilterReason::NoProcess:
@@ -52,6 +50,7 @@ namespace {
         const HWND inspected = selection.candidate ? selection.candidate : (selection.top ? selection.top : selection.hit);
         const DWORD pid = win::GetProcessId(inspected);
         const std::string process = ::util::WideToUtf8(win::GetProcessName(inspected));
+        const std::string processPath = ::util::WideToUtf8(win::GetProcessPath(inspected));
         const std::string title = ::util::WideToUtf8(win::GetWindowTitle(inspected));
         const std::string windowClass = ::util::WideToUtf8(win::GetWindowClass(inspected));
         const LONG_PTR style = inspected ? GetWindowLongPtrW(inspected, GWL_STYLE) : 0;
@@ -60,8 +59,12 @@ namespace {
         BOOL cloakedValue = FALSE;
         const bool cloaked = inspected && SUCCEEDED(DwmGetWindowAttribute(inspected, DWMWA_CLOAKED, &cloakedValue, sizeof(cloakedValue))) && cloakedValue;
         const bool responsive = inspected && win::IsWindowResponsive(inspected);
-        const bool resizable = inspected && win::GetResizable(inspected);
+        const bool thickFrame = (style & WS_THICKFRAME) != 0;
+        const bool toolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+        const bool resizable = inspected && (thickFrame || (responsive && win::GetResizable(inspected)));
+        const char* resizeSource = !resizable ? "none" : (thickFrame ? "frame" : "hit-test");
         const bool maximized = inspected && win::GetMaximized(inspected);
+        const bool arranged = inspected && IsWindowArranged(inspected);
         const bool minimized = inspected && win::GetMinimized(inspected);
 
         RECT rawRect{};
@@ -81,19 +84,21 @@ namespace {
                  "  operation: {}\n"
                  "  window:    \"{}\"\n"
                  "  identity:  pid={} class=\"{}\"\n"
+                 "  path:      \"{}\"\n"
                  "  handles:   hit={:p} top={:p} candidate={:p} inspected={:p}\n"
                  "  filter:    {}\n"
-                 "  state:     visible={} cloaked={} responsive={} resizable={}\n"
-                 "             maximized={} minimized={} fullscreen={}\n"
+                 "  state:     visible={} cloaked={} responsive={} resizable={} resize_source={}\n"
+                 "             maximized={} arranged={} minimized={} fullscreen={}\n"
                  "  geometry:  cursor=({}, {})\n"
                  "             raw={} visual={}\n"
-                 "  styles:    normal=0x{:X} extended=0x{:X}",
+                 "  styles:    normal=0x{:X} extended=0x{:X} thick_frame={} tool_window={}",
           process.empty() ? "<unknown>" : process,
           outcome,
           isLeft ? "drag" : "resize",
           title,
           pid,
           windowClass,
+          processPath.empty() ? "<unknown>" : processPath,
           reinterpret_cast<void*>(selection.hit),
           reinterpret_cast<void*>(selection.top),
           reinterpret_cast<void*>(selection.candidate),
@@ -103,7 +108,9 @@ namespace {
           cloaked,
           responsive,
           resizable,
+          resizeSource,
           maximized,
+          arranged,
           minimized,
           fullscreen,
           pt.x,
@@ -111,7 +118,9 @@ namespace {
           hasRawRect ? std::format("[{}, {}, {}, {}]", rawRect.left, rawRect.top, rawRect.right, rawRect.bottom) : "unavailable",
           hasVisualRect ? std::format("[{}, {}, {}, {}]", visualRect.left, visualRect.top, visualRect.right, visualRect.bottom) : "unavailable",
           static_cast<std::uintptr_t>(style),
-          static_cast<std::uintptr_t>(exStyle));
+          static_cast<std::uintptr_t>(exStyle),
+          thickFrame,
+          toolWindow);
     }
 
     bool IsLeftEvent(WPARAM event) noexcept {
@@ -123,7 +132,7 @@ namespace {
     }
 
     bool RestoreMaximizedForOperation(HWND hwnd, vec::i2 cursor, vec::i4& rawRect) noexcept {
-        if (!win::GetMaximized(hwnd))
+        if (!win::GetMaximized(hwnd) && !IsWindowArranged(hwnd))
             return true;
 
         const vec::i2 maximizedSize = rawRect.Size();
@@ -390,8 +399,8 @@ void Mouse::BeginOperation(WPARAM event) noexcept {
     }
 
     const SettingsPtr settings = LoadSettingsSnapshot(m_settings);
-    const bool traceGrabs = settings->debug.enabled(DebugFlag::TraceGrabs);
-    const bool traceInteraction = settings->debug.enabled(DebugFlag::Interaction);
+    const bool traceGrabs = settings->debug.enabled(DebugFlag::trace_grabs);
+    const bool traceInteraction = settings->debug.enabled(DebugFlag::interaction);
     const win::WindowAtPointResult selection = mouse::SelectTarget(ptWin, *settings);
     HWND candidate = selection.candidate;
     if (!candidate) {

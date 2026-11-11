@@ -19,7 +19,7 @@ namespace {
             case RenderStatus::SwapchainInvalid:
             case RenderStatus::DeviceLost:
                 if (renderer.ResetDevice()) {
-                    if (debug.enabled(DebugFlag::Overlay)) {
+                    if (debug.enabled(DebugFlag::overlay)) {
                         LOG_DEBUG("overlay_service: renderer recovery succeeded status={}", RenderStatusName(status));
                     }
                     return true;
@@ -194,14 +194,14 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             CompleteInteraction(renderer, active, preview);
         } else if (preview.capturePending) {
             preview.capturePending = false;
-            if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+            if (settingsSnapshot->debug.enabled(DebugFlag::snapshot)) {
                 LOG_DEBUG("interaction: id={} first outline presented; snapshot capture starting", session::Id(active));
             }
             const thumbnail::WindowSnapshotStatus status = renderer.BeginSnapshotCapture(session::Target(active));
             preview.captureInProgress = status == thumbnail::WindowSnapshotStatus::Pending;
             preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
             if (status == thumbnail::WindowSnapshotStatus::Failed) {
-                if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                if (settingsSnapshot->debug.enabled(DebugFlag::snapshot)) {
                     LOG_DEBUG("interaction: id={} snapshot capture unavailable; continuing overlay-only", session::Id(active));
                 }
             }
@@ -210,13 +210,13 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
             if (status != thumbnail::WindowSnapshotStatus::Pending) {
                 preview.captureInProgress = false;
                 preview.parkPending = status == thumbnail::WindowSnapshotStatus::Ready;
-                if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+                if (settingsSnapshot->debug.enabled(DebugFlag::snapshot)) {
                     LOG_DEBUG("interaction: id={} snapshot capture finished success={}", session::Id(active), status == thumbnail::WindowSnapshotStatus::Ready);
                 }
             }
         } else if (preview.parkPending) {
             const InteractionId interactionId = session::Id(active);
-            if (settingsSnapshot->debug.enabled(DebugFlag::Snapshot)) {
+            if (settingsSnapshot->debug.enabled(DebugFlag::snapshot)) {
                 LOG_DEBUG("interaction: id={} first thumbnail frame presented; queuing park", interactionId);
             }
             const vec::i4 originalRawRect = session::OriginalRawRect(active);
@@ -227,7 +227,7 @@ void OverlayService::OverlayLoop(std::stop_token token) noexcept {
               virtualBounds.x2 + 64 + originalRawRect.Width(),
               virtualBounds.y + originalRawRect.Height(),
             };
-            if (settingsSnapshot->debug.enabled(DebugFlag::WindowPlacement)) {
+            if (settingsSnapshot->debug.enabled(DebugFlag::window_placement)) {
                 LOG_DEBUG("interaction: id={} park submitting target={:p} virtual_bounds={} requested_raw_rect={}",
                   interactionId,
                   reinterpret_cast<void*>(session::Target(active)),

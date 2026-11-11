@@ -58,6 +58,7 @@ namespace {
             util::setFn(s, "restore", map::Bool<window::check, win::RestoreWindow>);
             util::setFn(s, "pid", WindowPid);
             util::setFn(s, "pname", map::Str<window::check, win::GetProcessName>);
+            util::setFn(s, "path", map::Str<window::check, win::GetProcessPath>);
             util::setFn(s, "visual_rect", WindowRect);
             util::setFn(s, "responsive", WindowResponsive);
             util::setFn(s, "set_visual_rect", WindowSetRect);

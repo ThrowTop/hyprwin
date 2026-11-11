@@ -205,6 +205,9 @@ function HW.Window:class() end
 ---@return string
 function HW.Window:pname() end
 
+---@return string
+function HW.Window:path() end
+
 ---@return integer?
 function HW.Window:pid() end
 
@@ -227,7 +230,7 @@ function HW.Window:get_minimized() end
 ---@return boolean
 function HW.Window:get_fullscreen() end
 
----@return boolean
+---@return boolean resizable True when the window has a native resize frame or exposes custom non-client resize edges.
 function HW.Window:get_resizable() end
 
 ---@return boolean
@@ -262,7 +265,7 @@ function HW.Window:focus() end
 ---@field maximized boolean
 ---@field minimized boolean
 ---@field fullscreen boolean
----@field resizable boolean
+---@field resizable boolean True when the window has a native resize frame or exposes custom non-client resize edges.
 
 ---@return hw_window_dump
 function HW.Window:dump() end
@@ -460,14 +463,14 @@ hw.build = {} --[[@as hw_build]]
 
 hw.window = {}
 
----@return HW.Window?
+---@return HW.Window? window Eligible top-level window under the cursor, including activatable tool-style windows.
 function hw.window.at_cursor() end
 
 ---@return HW.Window?
 function hw.window.focused() end
 
 ---@param fn? fun(w: HW.Window): boolean
----@return HW.Window[]
+---@return HW.Window[] windows Eligible visible top-level windows, including activatable tool-style windows.
 function hw.window.list(fn) end
 
 -- hw.mon -----------------------------------------------------

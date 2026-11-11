@@ -30,7 +30,6 @@ enum class WindowFilterReason {
     Cloaked,
     ShellProtected,
     Child,
-    ToolWindow,
     NoActivate,
     NoProcess,
     RuleExcluded,

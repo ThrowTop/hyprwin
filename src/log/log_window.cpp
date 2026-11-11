@@ -251,8 +251,42 @@ namespace {
         bool fuzzy_enabled = true;
         bool paused = false;
         bool autoscroll_enabled = true;
+        int wheel_delta_remainder = 0;
         std::function<void()> on_closed;
     };
+
+    LRESULT CALLBACK log_edit_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR ref_data) {
+        auto* state = reinterpret_cast<ViewerState*>(ref_data);
+        if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & (MK_CONTROL | MK_SHIFT)) == 0) {
+            UINT scroll_lines = 0;
+            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &scroll_lines, 0);
+            if (scroll_lines == 0) {
+                return 0;
+            }
+
+            state->wheel_delta_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
+            const int wheel_steps = state->wheel_delta_remainder / WHEEL_DELTA;
+            state->wheel_delta_remainder %= WHEEL_DELTA;
+            if (wheel_steps == 0) {
+                return 0;
+            }
+
+            if (scroll_lines == WHEEL_PAGESCROLL) {
+                const WPARAM command = wheel_steps > 0 ? SB_PAGEUP : SB_PAGEDOWN;
+                const int command_count = wheel_steps > 0 ? wheel_steps : -wheel_steps;
+                for (int i = 0; i < command_count; ++i) {
+                    SendMessageW(hwnd, WM_VSCROLL, command, 0);
+                }
+            } else {
+                SendMessageW(hwnd, EM_LINESCROLL, 0, -wheel_steps * static_cast<int>(scroll_lines));
+            }
+            return 0;
+        }
+        if (msg == WM_NCDESTROY) {
+            RemoveWindowSubclass(hwnd, log_edit_proc, 1);
+        }
+        return DefSubclassProc(hwnd, msg, wparam, lparam);
+    }
 
     LRESULT CALLBACK search_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR) {
         if (msg == WM_KEYDOWN && wparam == VK_BACK && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
@@ -436,7 +470,7 @@ namespace {
         SendMessageW(state.edit, WM_SETREDRAW, TRUE, 0);
         InvalidateRect(state.edit, nullptr, TRUE);
         if (state.autoscroll_enabled) {
-            SendMessageW(state.edit, EM_SCROLLCARET, 0, 0);
+            SendMessageW(state.edit, WM_VSCROLL, SB_BOTTOM, 0);
         }
         update_count(state);
     }
@@ -453,7 +487,7 @@ namespace {
             ++state.visible_count;
             append_to_edit(state.edit, stored, state.search_text, state.fuzzy_enabled, !state.autoscroll_enabled);
             if (state.autoscroll_enabled) {
-                SendMessageW(state.edit, EM_SCROLLCARET, 0, 0);
+                SendMessageW(state.edit, WM_VSCROLL, SB_BOTTOM, 0);
             }
             update_count(state);
         }
@@ -654,6 +688,7 @@ namespace {
                 SendMessageW(state->edit, EM_SETBKGNDCOLOR, 0, kBackground);
                 SendMessageW(state->edit, EM_EXLIMITTEXT, 0, 8 * 1024 * 1024);
                 SendMessageW(state->edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(12, 12));
+                SetWindowSubclass(state->edit, log_edit_proc, 1, reinterpret_cast<DWORD_PTR>(state));
 
                 for (std::size_t i = 0; i < state->levels.size(); ++i) {
                     state->levels[i] = create_button(hwnd, IdTrace + static_cast<int>(i), L"");

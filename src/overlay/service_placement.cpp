@@ -34,7 +34,7 @@ void OverlayService::PublishPlacementResult(const PlacementResult& result) noexc
 PlacementWorker& OverlayService::EnsurePlacementWorker(const DebugSettings& debug) {
     if (!m_placementWorker) {
         m_placementWorker = std::make_unique<PlacementWorker>([this](const PlacementResult& result) { PublishPlacementResult(result); });
-        if (debug.enabled(DebugFlag::WindowPlacement)) {
+        if (debug.enabled(DebugFlag::window_placement)) {
             LOG_DEBUG("placement_worker: started");
         }
     }
@@ -47,7 +47,7 @@ void OverlayService::RetirePlacementWorkerIfUnused(const OverlayActiveSession& a
     if (m_placementWorker && !session::IsActive(active) && !placementWorkerRequired) {
         m_placementWorker->WaitIdle();
         m_placementWorker.reset();
-        if (settings.debug.enabled(DebugFlag::WindowPlacement)) {
+        if (settings.debug.enabled(DebugFlag::window_placement)) {
             LOG_DEBUG("placement_worker: stopped");
         }
     }
@@ -62,7 +62,7 @@ void OverlayService::DrainPlacementResults(
     while (m_placementResults.pop(result)) {
         const InteractionId activeId = session::Id(active);
         if (result.interactionId == 0 || result.interactionId != activeId) {
-            if (debug.enabled(DebugFlag::WindowPlacement)) {
+            if (debug.enabled(DebugFlag::window_placement)) {
                 LOG_DEBUG("interaction: id={} stale placement result ignored kind={} active_id={}",
                   result.interactionId,
                   PlacementKindName(result.kind),
@@ -72,7 +72,7 @@ void OverlayService::DrainPlacementResults(
         }
 
         if (result.kind != PlacementKind::Live) {
-            if (debug.enabled(DebugFlag::WindowPlacement)) {
+            if (debug.enabled(DebugFlag::window_placement)) {
                 LOG_DEBUG("interaction: id={} placement completed kind={}",
                   result.interactionId,
                   PlacementKindName(result.kind));

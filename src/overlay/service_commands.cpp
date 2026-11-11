@@ -67,7 +67,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               const vec::i4 finalRawRect = session::ComputeBounds(active, cursor);
               m_latestBounds = finalRawRect;
               const HWND target = session::Target(active);
-              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+              if (settingsSnapshot->debug.enabled(DebugFlag::interaction)) {
                   LOG_DEBUG("interaction: id={} commit received cursor={} raw_rect={} parked={}",
                     value.interactionId,
                     vec::i2::FromWin32(cursor),
@@ -103,7 +103,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
                   LOG_WARN("interaction: id={} cancel ignored active_id={}", value.interactionId, activeId);
                   return;
               }
-              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+              if (settingsSnapshot->debug.enabled(DebugFlag::interaction)) {
                   LOG_DEBUG("interaction: id={} cancel received park_submitted={}", value.interactionId, preview.parkSubmitted);
               }
               if (preview.captureInProgress) {
@@ -146,7 +146,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               if (preview.mode != OverlayPreview::Overlay) {
                   EnsurePlacementWorker(settingsSnapshot->debug);
               }
-              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+              if (settingsSnapshot->debug.enabled(DebugFlag::interaction)) {
                   LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
                     value.session.interactionId,
                     session::TypeName(SessionType::Drag),
@@ -173,7 +173,7 @@ void OverlayService::ApplyCommand(OverlayRenderer& renderer,
               if (preview.mode != OverlayPreview::Overlay) {
                   EnsurePlacementWorker(settingsSnapshot->debug);
               }
-              if (settingsSnapshot->debug.enabled(DebugFlag::Interaction)) {
+              if (settingsSnapshot->debug.enabled(DebugFlag::interaction)) {
                   LOG_DEBUG("interaction: id={} begin received type={} target={:p} preview={} live_rate={} capture_pending={}",
                     value.session.interactionId,
                     session::TypeName(SessionType::Resize),

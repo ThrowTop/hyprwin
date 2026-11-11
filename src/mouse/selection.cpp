@@ -18,6 +18,7 @@ namespace {
       BuiltInGrabFilterRule{"builtin:desktop", {}, L"Progman"},
       BuiltInGrabFilterRule{"builtin:desktop-worker", {}, L"WorkerW"},
       BuiltInGrabFilterRule{"builtin:start-menu", L"StartMenuExperienceHost.exe", L"Windows.UI.Core.CoreWindow"},
+      BuiltInGrabFilterRule{"builtin:quick-settings", L"ShellHost.exe", L"ControlCenterWindow"},
     };
 
     bool EqualInsensitive(std::wstring_view left, std::wstring_view right) noexcept {
@@ -57,10 +58,6 @@ win::WindowAtPointResult SelectTarget(POINT pt, const Settings& settings) noexce
     const LONG_PTR exStyle = GetWindowLongPtrW(result.top, GWL_EXSTYLE);
     if ((style & WS_CHILD) != 0) {
         result.rejection = win::WindowFilterReason::Child;
-        return result;
-    }
-    if ((exStyle & WS_EX_TOOLWINDOW) != 0) {
-        result.rejection = win::WindowFilterReason::ToolWindow;
         return result;
     }
     if ((exStyle & WS_EX_NOACTIVATE) != 0) {

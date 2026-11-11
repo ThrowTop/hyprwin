@@ -24,6 +24,21 @@ namespace {
         return SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked;
     }
 
+    bool HasResizeHitTest(HWND hwnd, POINT point) noexcept {
+        DWORD_PTR result = HTNOWHERE;
+        if (SendMessageTimeoutW(
+              hwnd,
+              WM_NCHITTEST,
+              0,
+              MAKELPARAM(point.x, point.y),
+              SMTO_ABORTIFHUNG | SMTO_BLOCK,
+              50,
+              &result) == 0) {
+            return false;
+        }
+        return result >= HTLEFT && result <= HTBOTTOMRIGHT;
+    }
+
     HWND TopLevel(HWND hwnd) noexcept {
         if (!IsWindow(hwnd)) {
             return nullptr;
@@ -117,9 +132,6 @@ namespace detail {
         if ((style & WS_CHILD) != 0) {
             return reject(WindowFilterReason::Child);
         }
-        if ((exStyle & WS_EX_TOOLWINDOW) != 0) {
-            return reject(WindowFilterReason::ToolWindow);
-        }
         if ((exStyle & WS_EX_NOACTIVATE) != 0) {
             return reject(WindowFilterReason::NoActivate);
         }
@@ -201,7 +213,31 @@ bool GetBorderlessFullscreen(HWND hwnd, const RECT& rawRect) noexcept {
 }
 
 bool GetResizable(HWND hwnd) noexcept {
-    return IsWindow(hwnd) && (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_THICKFRAME) != 0;
+    if (!IsWindow(hwnd)) {
+        return false;
+    }
+    if ((GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_THICKFRAME) != 0) {
+        return true;
+    }
+
+    RECT rawRect{};
+    if (!GetWindowRect(hwnd, &rawRect)) {
+        return false;
+    }
+
+    constexpr LONG inset = 2;
+    const LONG width = rawRect.right - rawRect.left;
+    const LONG height = rawRect.bottom - rawRect.top;
+    if (width <= inset * 2 || height <= inset * 2) {
+        return false;
+    }
+
+    const LONG centerX = rawRect.left + width / 2;
+    const LONG centerY = rawRect.top + height / 2;
+    return HasResizeHitTest(hwnd, POINT{centerX, rawRect.top + inset}) ||
+           HasResizeHitTest(hwnd, POINT{rawRect.right - inset - 1, centerY}) ||
+           HasResizeHitTest(hwnd, POINT{centerX, rawRect.bottom - inset - 1}) ||
+           HasResizeHitTest(hwnd, POINT{rawRect.left + inset, centerY});
 }
 
 bool GetMaximized(HWND hwnd) noexcept {

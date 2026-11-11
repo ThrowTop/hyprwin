@@ -41,9 +41,18 @@ namespace {
     }
 
     std::string prefix(const Message& message) {
-        const auto local_time = std::chrono::zoned_time{std::chrono::current_zone(), std::chrono::floor<std::chrono::milliseconds>(message.timestamp)}.get_local_time();
+        constexpr std::uint64_t kUnixEpochFileTimeTicks = 116'444'736'000'000'000;
+        using FileTimeDuration = std::chrono::duration<std::uint64_t, std::ratio<1, 10'000'000>>;
+        ULARGE_INTEGER ticks{};
+        ticks.QuadPart = std::chrono::duration_cast<FileTimeDuration>(message.timestamp.time_since_epoch()).count() + kUnixEpochFileTimeTicks;
+        const FILETIME file_time{ticks.LowPart, ticks.HighPart};
+        SYSTEMTIME utc_time{};
+        SYSTEMTIME local_time{};
+        FileTimeToSystemTime(&file_time, &utc_time);
+        SystemTimeToTzSpecificLocalTimeEx(nullptr, &utc_time, &local_time);
 
-        std::string out = std::format("{:%d %H:%M:%S} [{}] ", local_time, tag(message.level));
+        std::string out = std::format("{:02} {:02}:{:02}:{:02}.{:03} [{}] ",
+          local_time.wDay, local_time.wHour, local_time.wMinute, local_time.wSecond, local_time.wMilliseconds, tag(message.level));
         if (message.thread_name.empty()) {
             out += std::format("[tid {}] ", message.thread_id);
         } else {
@@ -288,9 +297,10 @@ std::string make_run_log_file_path(std::string_view prefix, std::size_t keep_fil
     ec.clear();
 
     const std::string prefix_text(prefix);
-    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
-    const auto local_time = std::chrono::zoned_time{std::chrono::current_zone(), now}.get_local_time();
-    const std::string stem = std::format("{}_{:%Y%m%d_%H%M%S}", prefix_text, local_time);
+    SYSTEMTIME local_time{};
+    GetLocalTime(&local_time);
+    const std::string stem = std::format("{}_{:04}{:02}{:02}_{:02}{:02}{:02}",
+      prefix_text, local_time.wYear, local_time.wMonth, local_time.wDay, local_time.wHour, local_time.wMinute, local_time.wSecond);
 
     fs::path path = directory / (stem + ".log");
     for (int suffix = 1; fs::exists(path) && suffix < 100; ++suffix) {

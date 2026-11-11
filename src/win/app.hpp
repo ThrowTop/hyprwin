@@ -34,7 +34,9 @@ void DisableProcessThrottling() noexcept;
 bool EnsureRunAsAdminAndExitIfNot() noexcept;
 
 [[nodiscard]] DWORD GetProcessId(HWND hwnd) noexcept;
+[[nodiscard]] std::wstring GetProcessPathByPid(DWORD pid);
 [[nodiscard]] std::wstring GetProcessNameByPid(DWORD pid);
+[[nodiscard]] std::wstring GetProcessPath(HWND hwnd);
 [[nodiscard]] std::wstring GetProcessName(HWND hwnd);
 [[nodiscard]] bool KillWindowProcess(HWND hwnd) noexcept;
 

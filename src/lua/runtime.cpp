@@ -67,7 +67,7 @@ bool Runtime::DispatchBind(const KeyEvent& event) {
         return false;
     }
 
-    if (m_pending.debug.enabled(hw::DebugFlag::TraceBinds)) {
+    if (m_pending.debug.enabled(hw::DebugFlag::trace_binds)) {
         logging::write(logging::Level::Trace, "lua bind dispatch: {} (vk={} modifiers={})", FormatKeyEvent(event), event.vk, static_cast<unsigned>(event.modifiers));
     }
 
@@ -76,13 +76,13 @@ bool Runtime::DispatchBind(const KeyEvent& event) {
     std::string error;
 
     std::chrono::steady_clock::time_point bind_start;
-    if (m_pending.debug.enabled(hw::DebugFlag::BenchBinds)) {
+    if (m_pending.debug.enabled(hw::DebugFlag::bench_binds)) {
         bind_start = std::chrono::steady_clock::now();
     }
 
     const bool ok = GuardedCall(0, 0, 0, "bind callback", &error);
 
-    if (m_pending.debug.enabled(hw::DebugFlag::BenchBinds)) {
+    if (m_pending.debug.enabled(hw::DebugFlag::bench_binds)) {
         const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - bind_start).count();
         logging::write(logging::Level::Debug, "lua bind {} took {}us", FormatKeyEvent(event), us);
     }
@@ -95,7 +95,7 @@ bool Runtime::DispatchSuper(bool pressed) {
         return false;
     }
 
-    if (m_pending.debug.enabled(hw::DebugFlag::TraceSuper)) {
+    if (m_pending.debug.enabled(hw::DebugFlag::trace_super)) {
         logging::write(logging::Level::Trace, "lua super dispatch: {}", pressed ? "pressed" : "released");
     }
 
@@ -234,7 +234,7 @@ bool Runtime::GuardedCall(int nargs, int nresults, int errfunc, std::string_view
         errorHandler = functionIndex;
     }
 
-    const bool trace_this_call = m_pending.debug.enabled(hw::DebugFlag::TraceTimeout);
+    const bool trace_this_call = m_pending.debug.enabled(hw::DebugFlag::trace_timeout);
     std::chrono::steady_clock::time_point call_start{};
     if (trace_this_call) {
         call_start = std::chrono::steady_clock::now();
